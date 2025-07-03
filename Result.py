@@ -1,24 +1,31 @@
+import sys
+sys.dont_write_bytecode = True
 from api.resultAPI import *
 from api.app.init import Widget
 from PyQt6.QtGui import QSurfaceFormat
 from PyQt6.QtWidgets import QApplication
-from PyQt6 import QtWidgets
+
+# TODO: Rewrite the camera movement and rotation, but now for PyQT6.
+# TODO: Fix load_model() not reading verticies with "e".
 
 class AbstractWindow(Widget):
     def on_init(self):
-        # create_sphere((0, 0, 0), "Sphere", 200, 20, 20)
-        load_model("example.obj", (0, 0, 0), "Yeah")
-    
-    def update_frame(self):
-        # rotate_object("y", "Sphere", 1)
-        # rotate_object("x", "Sphere", 1)
-        # rotate_object("z", "Sphere", 1)
-        rotate_object("y", "Yeah", 1)
+        camera = Camera()
+        new_scene = Scene()
 
-        for obj in objects_onscene:
-            render_object(obj)
+        set_scene_instance(new_scene)
+        set_camera_instance(camera)
+
+        camera.Position = numpy.array([0, 0, 65])
+        camera.Fov = 90
+
+    def main(self):
+        load_model("assets/models/v1.obj", (0, -70, 0), "ffff")
+
+    def update_frame(self):
+        super().update_frame()
         
-        handle_camera_rotation()
+        rotate_object("y", "ffff", 1.0)
 
 fmt = QSurfaceFormat()
 fmt.setVersion(3, 3)
@@ -27,7 +34,12 @@ QSurfaceFormat.setDefaultFormat(fmt)
 
 app = QApplication(sys.argv)
 w = AbstractWindow()
+
 set_window_instance(w)
-w.show()
+
+if Result.WindowParam.Fullscreen:
+    w.showFullScreen()
+else:
+    w.show()
 
 sys.exit(app.exec())

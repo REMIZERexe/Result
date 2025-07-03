@@ -1,48 +1,35 @@
 import sys
+sys.dont_write_bytecode = True
 import numpy as np
+
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
 from OpenGL.GL.shaders import compileShader, compileProgram
 from PyQt6.QtCore import QTimer
+from PyQt6 import QtGui
 
+from api.resultAPI import *
+from api.shaders.shaders import *
 
-VERTEX_SHADER_SOURCE = """
-#version 330 core
-layout(location = 0) in vec2 position;
-void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
-}
-"""
-
-FRAGMENT_SHADER_SOURCE = """
-#version 330 core
-out vec4 FragColor;
-void main() {
-    FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-}
-"""
-
-dx = 0
-dy = 0
+res = Result()
 
 class Widget(QOpenGLWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Result3D [pre-alpha]")
-        self.resize(1280, 720)
+        set_window_settings_instance(WindowSettings())
+        self.resize(Result.WindowParam.WindowSize["width"], Result.WindowParam.WindowSize["height"])
         self.setMouseTracking(True)
 
         self.shader = None
         self.vao = None
         self.vbo = None
-        self.lines = []
         self.on_init()
 
-        self.last_mouse_pos = None
-
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update)  # вызывает paintGL()
-        self.timer.start(16)  # ~60 FPS (1000 ms / 60 ≈ 16)
+        self.timer.timeout.connect(self.update_frame)
+
+        self.ready()
 
     def initializeGL(self):
         glClearColor(0, 0.8, 0.8, 1)
@@ -55,28 +42,19 @@ class Widget(QOpenGLWidget):
             compileShader(FRAGMENT_SHADER_SOURCE, GL_FRAGMENT_SHADER)
         )
 
+        glUseProgram(self.shader)
+        glUniform2f(glGetUniformLocation(self.shader, "screenSize"), Result.WindowParam.WindowSize["width"], Result.WindowParam.WindowSize["height"]);
+
     def initBuffers(self):
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)
-
-    def draw_line(self, start, end):
-        width, height = self.width(), self.height()
-        ndc_start_x = (start[0] / width) * 2 - 1
-        ndc_start_y = 1 - (start[1] / height) * 2
-        ndc_end_x = (end[0] / width) * 2 - 1
-        ndc_end_y = 1 - (end[1] / height) * 2
-        
-        self.lines.append((ndc_start_x, ndc_start_y, ndc_end_x, ndc_end_y))
-        self.update()
 
     def paintGL(self):
         glClear(GL_COLOR_BUFFER_BIT)
         glUseProgram(self.shader)
         glBindVertexArray(self.vao)
-
-        self.update_frame()
         
-        for line in self.lines:
+        for line in res.EdgeBuffer:
             vertices = np.array([
                 line[0], line[1],
                 line[2], line[3]
@@ -90,34 +68,49 @@ class Widget(QOpenGLWidget):
 
             glDrawArrays(GL_LINES, 0, 2)
         
-        self.lines.clear()
+        res.EdgeBuffer.clear()
 
         glBindVertexArray(0)
         glUseProgram(0)
         glFinish()
 
     def resizeGL(self, width: int, height: int):
-        global centerX, centerY
-        centerX, centerY = width // 2, height // 2
+        Result.WindowParam.WindowSize = {
+            "width": width,
+            "height": int(width * 9 / 16)
+        }
     
-    def mouseMoveEvent(self, event):
-        global dx, dy
-        pos = event.position()
-        x, y = pos.x(), pos.y()
-        if self.last_mouse_pos is None:
-            self.last_mouse_pos = (x, y)
-            return
-        else: self.last_mouse_pos = (x, y)
+    #! My functions
+    def draw_line(self, start, end):
+        width, height = self.width(), self.height()
+        ndc_start_x = (start[0] / width) * 2 - 1
+        ndc_start_y = 1 - (start[1] / height) * 2
+        ndc_end_x = (end[0] / width) * 2 - 1
+        ndc_end_y = 1 - (end[1] / height) * 2
+        
+        res.EdgeBuffer.append((ndc_start_x, ndc_start_y, ndc_end_x, ndc_end_y))
+        self.update()
+    #! ----------
 
-        dx = x - self.last_mouse_pos[0]
-        dy = y - self.last_mouse_pos[1]
-        self.last_mouse_pos = (x, y)
-    
-    def mouseReleaseEvent(self, event):
-        self.last_mouse_pos = None
-    
     def on_init(self):
-        return
+        pass
+
+    def main(self):
+        pass
 
     def update_frame(self):
-        return
+        render_scene()
+
+    def ready(self):
+        if hasattr(Result, "MainScene") == False:
+            print("Result3D: You haven't created any scene! Create a scene instance and set it as the main scene with set_scene_instance()")
+            return
+        if hasattr(Result.MainScene, "MainCamera") == False:
+            print("Result3D: You haven't created any camera! Create a camera instance and set it as the main camera with set_camera_instance()")
+            return
+        else:
+            matrices = Matrices()
+            set_matrices_instance(matrices)
+
+            self.main()
+            self.timer.start(16)
