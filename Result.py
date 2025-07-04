@@ -9,23 +9,12 @@ from PyQt6.QtWidgets import QApplication
 # TODO: Fix load_model() not reading verticies with "e".
 
 class AbstractWindow(Widget):
-    def on_init(self):
-        camera = Camera()
-        new_scene = Scene()
+    def on_init(self): pass
 
-        set_scene_instance(new_scene)
-        set_camera_instance(camera)
-
-        camera.Position = numpy.array([0, 0, 65])
-        camera.Fov = 90
-
-    def main(self):
-        load_model("assets/models/v1.obj", (0, -70, 0), "ffff")
+    def main(self): pass
 
     def update_frame(self):
         super().update_frame()
-        
-        rotate_object("y", "ffff", 1.0)
 
 fmt = QSurfaceFormat()
 fmt.setVersion(3, 3)

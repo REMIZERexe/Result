@@ -42,9 +42,6 @@ class Widget(QOpenGLWidget):
             compileShader(FRAGMENT_SHADER_SOURCE, GL_FRAGMENT_SHADER)
         )
 
-        glUseProgram(self.shader)
-        glUniform2f(glGetUniformLocation(self.shader, "screenSize"), Result.WindowParam.WindowSize["width"], Result.WindowParam.WindowSize["height"]);
-
     def initBuffers(self):
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)

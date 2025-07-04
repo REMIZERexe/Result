@@ -168,49 +168,6 @@ def ndc_to_screen(point) -> tuple:
     screen_x = int((x_ndc + 1) * Result.WindowParam.WindowSize["width"] / 2)
     screen_y = int((1 - y_ndc) * Result.WindowParam.WindowSize["height"] / 2)
     return (screen_x, screen_y)
-
-def clip_to_screen(p1, p2, width, height):
-    def is_inside(p):
-        return 0 <= p[0] < width and 0 <= p[1] < height
-
-    if is_inside(p1) and is_inside(p2):
-        return p1, p2  # Уже внутри
-
-    def intersect(p_in, p_out):
-        x1, y1 = p_in
-        x2, y2 = p_out
-        dx = x2 - x1
-        dy = y2 - y1
-
-        if dx != 0:
-            if x2 < 0:
-                t = (0 - x1) / dx
-            elif x2 > width:
-                t = (width - 1 - x1) / dx
-            else:
-                t = 1
-        elif dy != 0:
-            if y2 < 0:
-                t = (0 - y1) / dy
-            elif y2 > height:
-                t = (height - 1 - y1) / dy
-            else:
-                t = 1
-        else:
-            t = 1
-
-        new_x = x1 + t * dx
-        new_y = y1 + t * dy
-        return (new_x, new_y)
-
-    if is_inside(p1):
-        p2 = intersect(p1, p2)
-    elif is_inside(p2):
-        p1 = intersect(p2, p1)
-    else:
-        return None  # обе вне — не рисуем
-
-    return p1, p2
 #! ----------
 
 #! Transformation functions

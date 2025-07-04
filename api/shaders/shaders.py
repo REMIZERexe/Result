@@ -8,7 +8,6 @@ void main() {
 
 FRAGMENT_SHADER_SOURCE = """
 #version 330 core
-uniform vec2 screenSize;
 out vec4 FragColor;
 void main() {
     FragColor = vec4(0.0, 0.0, 0.0, 1.0);
