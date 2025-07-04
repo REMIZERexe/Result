@@ -1,3 +1,4 @@
+from re import L
 import sys
 sys.dont_write_bytecode = True
 import os
@@ -274,27 +275,31 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
 
     Result.MainScene.ObjectsOnScene.append([name, position, radius, segments, rings, vertices, edges])
 
-def create_cone(position: tuple, name: str, radius: float, height: float, segments: int) -> None:
+def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool) -> None:
     vertices = []
     edges = []
 
-    apex = (0, height, 0)
-    base_center = (0, 0, 0)
+    apex = (0, height, 0, 1.0)
+    base_center_vertex = (0, -(height / 2), 0, 1.0)
 
-    for i in range(segments):
-        angle = 2 * numpy.pi * i / segments
+    for segment in range(segments):
+        angle = 2 * numpy.pi * segment / segments
         x = radius * numpy.cos(angle)
         z = radius * numpy.sin(angle)
         y = 0
-        vertices.append((x, y, z))
+        vertices.append((x, y - height / 2, z, 1.0))
 
-    for i in range(0, len(vertices)):
-        edges.append((i, len(vertices) - 1))
+    for vertex in range(0, len(vertices)):
+        if base_center:
+            edges.append((vertex, len(vertices)))
 
-    for i in range(0, len(vertices)):
-        edges.append((i, len(vertices) - 2))
+        edges.append((vertex, len(vertices) + 1))
 
-    vertices.append(base_center)
+        if vertex != segments - 1:
+            edges.append((vertex, vertex + 1))
+    edges.append((0, len(vertices) - 1))
+
+    vertices.append(base_center_vertex)
     vertices.append(apex)
     position = [position[0], position[1], position[2], 1.0]
 
