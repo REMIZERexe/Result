@@ -16,7 +16,7 @@ class AbstractWindow(Widget):
         set_scene_instance(scene)
         set_camera_instance(camera)
 
-        camera.Position = (0, 0, 80)
+        camera.Position = (0, 0, 100)
 
     def main(self): 
         create_cone((0, 0, 0), "Cone", 40, 50, 4, False)
@@ -25,6 +25,7 @@ class AbstractWindow(Widget):
         super().update_frame()
 
         rotate_object("y", "Cone", 1.0)
+        move_object(0, 0, 1, "Cone")
 
 fmt = QSurfaceFormat()
 fmt.setVersion(3, 3)

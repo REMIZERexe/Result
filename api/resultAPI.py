@@ -1,5 +1,10 @@
-from re import L
+import array
 import sys
+
+from cv2 import norm
+from pygame import ver
+from sympy import sequence
+
 sys.dont_write_bytecode = True
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -36,26 +41,26 @@ class Camera(Object):
 
         self.DefYaw = 0
         self.DefPitch = 0
+        self.DefRoll = 0
         self.Fov = 90
 
 class Scene:
     def __init__(self) -> None:
         self.ObjectsOnScene = []
         self.MainCamera = None
-
+# (self.far + self.near) / (self.near - self.far), (2 * self.far * self.near) / (self.near - self.far)
 class Matrices:
     def __init__(self) -> None:
-        class MatriceSettings:
-            aspect_ratio = Result.WindowParam.WindowSize["width"] / Result.WindowParam.WindowSize["height"]
-            near = 0.1
-            far = 200.0
-            f = 1 / math.tan(math.radians(Result.MainScene.MainCamera.Fov) / 2)
+        self.aspect_ratio = Result.WindowParam.WindowSize["width"] / Result.WindowParam.WindowSize["height"]
+        self.near = 0.1
+        self.far = 200.0
+        self.f = 1 / math.tan(math.radians(Result.MainScene.MainCamera.Fov) / 2)
 
         self.ProjMatrix = numpy.array([
-            [MatriceSettings.f / MatriceSettings.aspect_ratio, 0, 0, 0],
-            [0, MatriceSettings.f, 0, 0],
-            [0, 0, (MatriceSettings.far + MatriceSettings.near) / (MatriceSettings.near - MatriceSettings.far), (2 * MatriceSettings.far * MatriceSettings.near) / (MatriceSettings.near - MatriceSettings.far)],
-            [0, 0, -1, 0]
+            [self.f / self.aspect_ratio, 0, 0, 0],
+            [0, self.f, 0, 0],
+            [0, 0, self.far / (self.near - self.far), -1],
+            [0, 0, (self.near * self.far) / (self.near - self.far), 0]
         ])
 
     def getxRot_matrix(self, angle) -> numpy.ndarray:
@@ -96,10 +101,31 @@ class Matrices:
     
     def getTrans_matrix(self, tx, ty, tz) -> numpy.ndarray:
         translation_matrix = numpy.array([
-            [1, 0, 0, tx],
-            [0, 1, 0, ty],
-            [0, 0, 1, tz],
-            [0, 0, 0, 1]
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [tx, ty, tz, 1]
+        ])
+        return translation_matrix
+    
+    def getView_matrix(self) -> numpy.ndarray:
+        cameraPos = Result.MainScene.MainCamera.Position
+        cameraTarget = numpy.array([0.0, 0.0, -(cameraPos[2] + 10)])
+        cameraUpVector = numpy.array([0.0, 1.0, 0.0])
+
+        Zaxis = cameraPos[:3] - cameraTarget
+        Zaxis /= numpy.linalg.norm(Zaxis)
+
+        Xaxis = numpy.cross(cameraUpVector, Zaxis)
+        Xaxis = Xaxis / numpy.linalg.norm(Xaxis)
+
+        Yaxis = numpy.cross(Zaxis, Xaxis)
+
+        translation_matrix = numpy.array([
+            [Xaxis[0], Yaxis[0], Zaxis[0], 0],
+            [Xaxis[1], Yaxis[1], Zaxis[1], 0],
+            [Xaxis[2], Yaxis[2], Zaxis[2], 0],
+            [-numpy.dot(Xaxis, cameraPos), -numpy.dot(Yaxis, cameraPos), -numpy.dot(Zaxis, cameraPos), 1]
         ])
         return translation_matrix
     
@@ -138,33 +164,38 @@ def render_scene() -> None:
         points = project_points(vertices, position)
 
         for edge in edges:
-            engine_window.draw_line(points[edge[0]], points[edge[1]])
+            if edge[0] < len(points) and edge[1] < len(points):
+                engine_window.draw_line(points[edge[0]], points[edge[1]])
 
-def project_points(vertices, position) -> numpy.ndarray:
+def project_points(vertices: list, position: tuple) -> numpy.ndarray:
     proj_points = []
+
+    T = Result.Matrices.getTrans_matrix(*position[:3])
+    CamT = Result.Matrices.getView_matrix()
+    Rx = Result.Matrices.getxRot_matrix(Result.MainScene.MainCamera.DefPitch)
+    Ry = Result.Matrices.getyRot_matrix(Result.MainScene.MainCamera.DefYaw)
+    Rz = Result.Matrices.getzRot_matrix(Result.MainScene.MainCamera.DefRoll)
+
     for vertex in vertices:
-        if len(vertex) == 3:
-            vertex = numpy.array([*vertex, 1.0])
-        if len(Result.MainScene.MainCamera.Position) == 3:
-            Result.MainScene.MainCamera.position = numpy.array([*Result.MainScene.MainCamera.Position, 1.0])
+            if len(vertex) == 3:
+                vertex = numpy.array([*vertex, 1.0])
+            if len(Result.MainScene.MainCamera.Position) == 3:
+                Result.MainScene.MainCamera.position = numpy.array([*Result.MainScene.MainCamera.Position, 1.0])
 
-        vertex = Result.Matrices.getTrans_matrix(*position[:3]) @ vertex
-        vertex = Result.Matrices.getTrans_matrix(-Result.MainScene.MainCamera.Position[0], -Result.MainScene.MainCamera.Position[1], -Result.MainScene.MainCamera.Position[2]) @ vertex
-        vertex = Result.Matrices.getyRot_matrix(Result.MainScene.MainCamera.DefYaw) @ vertex
-        vertex = Result.Matrices.getxRot_matrix(Result.MainScene.MainCamera.DefPitch) @ vertex
+            vertex = vertex @ ((((Rx @ Ry) @ Rz) @ T) @ CamT)
+      
+            proj = vertex @ Result.Matrices.ProjMatrix
 
-        proj = Result.Matrices.ProjMatrix @ vertex
+            if proj[3] != 0:
+                    proj /= proj[3]
 
-        if proj[3] != 0:
-            proj /= proj[3]
+            proj = ndc_to_screen(proj)
 
-        proj = ndc_to_screen(proj)
-
-        proj_points.append(proj)
+            proj_points.append(proj)
 
     return numpy.array(proj_points)
 
-def ndc_to_screen(point) -> tuple:
+def ndc_to_screen(point: list) -> tuple:
     x_ndc, y_ndc = point[0], point[1]
     screen_x = int((x_ndc + 1) * Result.WindowParam.WindowSize["width"] / 2)
     screen_y = int((1 - y_ndc) * Result.WindowParam.WindowSize["height"] / 2)
@@ -199,7 +230,7 @@ def rotate_object(axis: str, object_name: str, angle: float) -> None:
 def move_object(by_x: float, by_y: float, by_z: float, object_name: str) -> None:
     for obj in Result.MainScene.ObjectsOnScene:
         if obj[0] == object_name:
-            obj[1] = (Result.Matrices.getTrans_matrix(by_x, by_y, by_z) @ obj[1])
+            obj[1] @= Result.Matrices.getTrans_matrix(by_x, by_y, by_z)
             return
     
     print(f"move_object({by_x}, {by_y}, {by_z}, {object_name}): The entered object does not exist!")
@@ -222,7 +253,7 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
     offset_y = sizeY / 2
     offset_z = sizeZ / 2
 
-    vertices = numpy.array([
+    vertices = [
         ( offset_x,  offset_y,  offset_z, 1),
         ( offset_x, -offset_y,  offset_z, 1),
         (-offset_x, -offset_y,  offset_z, 1),
@@ -231,7 +262,7 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
         ( offset_x, -offset_y, -offset_z, 1),
         (-offset_x, -offset_y, -offset_z, 1),
         (-offset_x,  offset_y, -offset_z, 1),
-    ])
+    ]
 
     edges = [
         (0, 1), (1, 2), (2, 3), (3, 0),
@@ -239,7 +270,7 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
         (0, 4), (1, 5), (2, 6), (3, 7)
     ]
 
-    position = [position[0], position[1], position[2], 1]
+    position = numpy.array([position[0], position[1], position[2], 1])
 
     Result.MainScene.ObjectsOnScene.append([name, position, sizeX, sizeY, sizeZ, vertices, edges])
 
@@ -257,7 +288,6 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
             y = radius * math.cos(theta)
 
             vertices.append((x, y, z, 1))
-            numpy.array(vertices)
     
     for i in range(rings):
         for j in range(segments):
@@ -271,7 +301,7 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
                 edges.append((current, below))
                 numpy.array(edges)
 
-    position = [position[0], position[1], position[2], 1.0]
+    position = numpy.array([position[0], position[1], position[2], 1.0])
 
     Result.MainScene.ObjectsOnScene.append([name, position, radius, segments, rings, vertices, edges])
 
@@ -301,7 +331,7 @@ def create_cone(position: tuple, name: str, radius: float, height: float, segmen
 
     vertices.append(base_center_vertex)
     vertices.append(apex)
-    position = [position[0], position[1], position[2], 1.0]
+    position = numpy.array([position[0], position[1], position[2], 1.0])
 
     Result.MainScene.ObjectsOnScene.append([name, position, radius, height, segments, vertices, edges])
 
@@ -345,7 +375,7 @@ def load_model(directory: str, position: tuple, name: str) -> None:
         print(f"load_model({directory}, {position}, {name}): Failed to create a numpy array of vertices!: {e}")
         return
 
-    position = [position[0], position[1], position[2], 1.0]
+    position = numpy.array([position[0], position[1], position[2], 1.0])
 
     Result.MainScene.ObjectsOnScene.append([name, position, None, None, None, vertices, edges])
 #! ----------

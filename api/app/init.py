@@ -1,4 +1,5 @@
 import sys
+
 sys.dont_write_bytecode = True
 import numpy as np
 
@@ -6,7 +7,6 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
 from OpenGL.GL.shaders import compileShader, compileProgram
 from PyQt6.QtCore import QTimer
-from PyQt6 import QtGui
 
 from api.resultAPI import *
 from api.shaders.shaders import *
