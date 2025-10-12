@@ -1,12 +1,10 @@
-import array
 import sys
 
-from cv2 import norm
-from pygame import ver
-from sympy import sequence
-
 sys.dont_write_bytecode = True
+from configparser import ConfigParser
+config = ConfigParser()
 import os
+config.read(os.path.join(os.path.dirname(__file__), "app/config.ini"))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from typing import Callable
 import math
@@ -23,38 +21,30 @@ def timer(func: Callable) -> None:
     return wrapper
 
 #! Result classes
-class WindowSettings:
-    def __init__(self) -> None:
-        self.Fullscreen = False
-        self.WindowSize = {
-            "width": 1280,
-            "height": 720
-        }
-
 class Object:
     def __init__(self) -> None:
-        self.Position = numpy.array([0, 0, 0])
+        self.Position = [0, 0, 0]
 
 class Camera(Object):
     def __init__(self) -> None:
         super().__init__()
 
-        self.DefYaw = 0
-        self.DefPitch = 0
-        self.DefRoll = 0
-        self.Fov = 90
+        self.Yaw = 0
+        self.Pitch = 0
+        self.Roll = 0
+        self.Fov = 110
 
 class Scene:
     def __init__(self) -> None:
         self.ObjectsOnScene = []
         self.MainCamera = None
-# (self.far + self.near) / (self.near - self.far), (2 * self.far * self.near) / (self.near - self.far)
+
 class Matrices:
     def __init__(self) -> None:
-        self.aspect_ratio = Result.WindowParam.WindowSize["width"] / Result.WindowParam.WindowSize["height"]
+        self.aspect_ratio = config.getint("window", "width") / config.getint("window", "height")
         self.near = 0.1
         self.far = 200.0
-        self.f = 1 / math.tan(math.radians(Result.MainScene.MainCamera.Fov) / 2)
+        self.f = 1 / math.tan(math.radians(result.MainScene.MainCamera.Fov) / 2)
 
         self.ProjMatrix = numpy.array([
             [self.f / self.aspect_ratio, 0, 0, 0],
@@ -109,25 +99,42 @@ class Matrices:
         return translation_matrix
     
     def getView_matrix(self) -> numpy.ndarray:
-        cameraPos = Result.MainScene.MainCamera.Position
-        cameraTarget = numpy.array([0.0, 0.0, -(cameraPos[2] + 10)])
-        cameraUpVector = numpy.array([0.0, 1.0, 0.0])
-
-        Zaxis = cameraPos[:3] - cameraTarget
-        Zaxis /= numpy.linalg.norm(Zaxis)
-
-        Xaxis = numpy.cross(cameraUpVector, Zaxis)
-        Xaxis = Xaxis / numpy.linalg.norm(Xaxis)
-
-        Yaxis = numpy.cross(Zaxis, Xaxis)
-
-        translation_matrix = numpy.array([
-            [Xaxis[0], Yaxis[0], Zaxis[0], 0],
-            [Xaxis[1], Yaxis[1], Zaxis[1], 0],
-            [Xaxis[2], Yaxis[2], Zaxis[2], 0],
-            [-numpy.dot(Xaxis, cameraPos), -numpy.dot(Yaxis, cameraPos), -numpy.dot(Zaxis, cameraPos), 1]
+        cam = result.MainScene.MainCamera
+        cameraPos = cam.Position[:3]  # Make sure it's 3D
+        
+        # Calculate forward direction from yaw and pitch
+        yaw_rad = numpy.radians(cam.Yaw)
+        pitch_rad = numpy.radians(cam.Pitch)
+        
+        # Forward vector (where camera is looking)
+        forward = numpy.array([
+            numpy.cos(pitch_rad) * numpy.cos(yaw_rad),
+            numpy.sin(pitch_rad),
+            numpy.cos(pitch_rad) * numpy.sin(yaw_rad)
         ])
-        return translation_matrix
+        forward = forward / numpy.linalg.norm(forward)
+        
+        # World up is ALWAYS up in world space
+        worldUp = numpy.array([0.0, 1.0, 0.0])
+        
+        # Right vector (perpendicular to forward and world up)
+        right = numpy.cross(forward, worldUp)
+        right = right / numpy.linalg.norm(right)
+        
+        # Camera's up vector (perpendicular to right and forward)
+        up = numpy.cross(right, forward)
+        # up is already normalized
+        
+        # Build view matrix
+        # Note: We're building the INVERSE of the camera's transform
+        view_matrix = numpy.array([
+            [right[0], up[0], -forward[0], 0],
+            [right[1], up[1], -forward[1], 0],
+            [right[2], up[2], -forward[2], 0],
+            [-numpy.dot(right, cameraPos), -numpy.dot(up, cameraPos), numpy.dot(forward, cameraPos), 1]
+        ])
+        
+        return view_matrix
     
 class Result:
     def __init__(self) -> None:
@@ -140,65 +147,88 @@ class Result:
 #! ----------
 
 #! Settings by default
+def set_result_instance() -> None:
+    global result
+    result = Result()
+
 def set_window_instance(win) -> None:
     global engine_window
     engine_window = win
 
 def set_scene_instance(scene) -> None:
-    Result.MainScene = scene
+    result.MainScene = scene
 
 def set_camera_instance(camera) -> None:
-    Result.MainScene.MainCamera = camera
+    result.MainScene.MainCamera = camera
 
 def set_matrices_instance(instance) -> None:
-    Result.Matrices = instance
-
-def set_window_settings_instance(instance) -> None:
-    Result.WindowParam = instance
+    result.Matrices = instance
 #! ----------
 
 #! Rendering functions
 def render_scene() -> None:
-    for obj in Result.MainScene.ObjectsOnScene:
+    for obj in result.MainScene.ObjectsOnScene:
         name, position, sizeX, sizeY, sizeZ, vertices, edges = obj
-        points = project_points(vertices, position)
+        clipped_edges = project(vertices, position, edges)
 
-        for edge in edges:
-            if edge[0] < len(points) and edge[1] < len(points):
-                engine_window.draw_line(points[edge[0]], points[edge[1]])
+        for edge in clipped_edges:
+            start, end = edge
+            
+            engine_window.draw_line(start, end)
 
-def project_points(vertices: list, position: tuple) -> numpy.ndarray:
-    proj_points = []
-
-    T = Result.Matrices.getTrans_matrix(*position[:3])
-    CamT = Result.Matrices.getView_matrix()
-    Rx = Result.Matrices.getxRot_matrix(Result.MainScene.MainCamera.DefPitch)
-    Ry = Result.Matrices.getyRot_matrix(Result.MainScene.MainCamera.DefYaw)
-    Rz = Result.Matrices.getzRot_matrix(Result.MainScene.MainCamera.DefRoll)
-
+def project(vertices: list, position: tuple, edges: list) -> list:
+    TRANS = result.Matrices.getTrans_matrix(*position[:3])
+    VIEW = result.Matrices.getView_matrix()
+    
+    vertices_view = []
     for vertex in vertices:
-            if len(vertex) == 3:
-                vertex = numpy.array([*vertex, 1.0])
-            if len(Result.MainScene.MainCamera.Position) == 3:
-                Result.MainScene.MainCamera.position = numpy.array([*Result.MainScene.MainCamera.Position, 1.0])
-
-            vertex = vertex @ ((((Rx @ Ry) @ Rz) @ T) @ CamT)
-      
-            proj = vertex @ Result.Matrices.ProjMatrix
-
-            if proj[3] != 0:
-                    proj /= proj[3]
-
-            proj = ndc_to_screen(proj)
-
-            proj_points.append(proj)
-
-    return numpy.array(proj_points)
+        if len(vertex) == 3:
+            vertex = numpy.array([*vertex, 1.0])
+        vertex_view = vertex @ TRANS @ VIEW
+        vertices_view.append(vertex_view)
+    
+    clipped_lines = []
+    near_plane = config.getfloat("camera", "near_plane")
+    
+    for edge in edges:
+        start_idx, end_idx = edge
+        v1 = vertices_view[start_idx]
+        v2 = vertices_view[end_idx]
+        
+        z1, z2 = v1[2], v2[2]
+        
+        if z1 > near_plane and z2 > near_plane:
+            continue
+        
+        if z1 > near_plane or z2 > near_plane:
+            # Calculate interpolation factor where line crosses near plane
+            t = (near_plane - z1) / (z2 - z1)
+            
+            clipped_vertex = v1 + t * (v2 - v1)
+            
+            if z1 > near_plane:
+                v1 = clipped_vertex
+            else:
+                v2 = clipped_vertex
+        
+        proj1 = v1 @ result.Matrices.ProjMatrix
+        proj2 = v2 @ result.Matrices.ProjMatrix
+        
+        if proj1[3] != 0:
+            proj1 /= proj1[3]
+        if proj2[3] != 0:
+            proj2 /= proj2[3]
+        screen1 = ndc_to_screen(proj1)
+        screen2 = ndc_to_screen(proj2)
+        
+        clipped_lines.append((screen1, screen2))
+    
+    return clipped_lines
 
 def ndc_to_screen(point: list) -> tuple:
     x_ndc, y_ndc = point[0], point[1]
-    screen_x = int((x_ndc + 1) * Result.WindowParam.WindowSize["width"] / 2)
-    screen_y = int((1 - y_ndc) * Result.WindowParam.WindowSize["height"] / 2)
+    screen_x = int((x_ndc + 1) * config.getint("window", "width") / 2)
+    screen_y = int((1 - y_ndc) * config.getint("window", "height") / 2)
     return (screen_x, screen_y)
 #! ----------
 
@@ -208,7 +238,7 @@ def rotate_object(axis: str, object_name: str, angle: float) -> None:
         print(f"rotate_object({axis}, {object_name}, {angle}): You can't rotate an object on a non-existent axis!")
         return
     
-    for obj in Result.MainScene.ObjectsOnScene:
+    for obj in result.MainScene.ObjectsOnScene:
         if obj[0] == object_name:
             vertices = obj[5]
             rotated = []
@@ -216,11 +246,11 @@ def rotate_object(axis: str, object_name: str, angle: float) -> None:
             for vertex in vertices:
                 match axis.upper():
                     case "X":
-                        rotated.append(Result.Matrices.getxRot_matrix(angle) @ vertex)
+                        rotated.append(result.Matrices.getxRot_matrix(angle) @ vertex)
                     case "Y":
-                        rotated.append(Result.Matrices.getyRot_matrix(angle) @ vertex)
+                        rotated.append(result.Matrices.getyRot_matrix(angle) @ vertex)
                     case "Z":
-                        rotated.append(Result.Matrices.getzRot_matrix(angle) @ vertex)
+                        rotated.append(result.Matrices.getzRot_matrix(angle) @ vertex)
 
             obj[5] = rotated
             return
@@ -228,9 +258,9 @@ def rotate_object(axis: str, object_name: str, angle: float) -> None:
     print(f"rotate_object({axis}, {object_name}, {angle}): The entered object does not exist!")
 
 def move_object(by_x: float, by_y: float, by_z: float, object_name: str) -> None:
-    for obj in Result.MainScene.ObjectsOnScene:
+    for obj in result.MainScene.ObjectsOnScene:
         if obj[0] == object_name:
-            obj[1] @= Result.Matrices.getTrans_matrix(by_x, by_y, by_z)
+            obj[1] @= result.Matrices.getTrans_matrix(by_x, by_y, by_z)
             return
     
     print(f"move_object({by_x}, {by_y}, {by_z}, {object_name}): The entered object does not exist!")
@@ -241,9 +271,9 @@ def create_instance(obj_name: str, inst_name: str, position: tuple) -> None:
     if len(position) > 3 or len(position) < 3:
         print(f"create_instance({obj_name}, {inst_name}, {position}): The entered position is invalid!")
 
-    for obj in Result.MainScene.ObjectsOnScene:
+    for obj in result.MainScene.ObjectsOnScene:
         if obj[0] == obj_name:
-            Result.MainScene.ObjectsOnScene.append((inst_name, position, obj[2], obj[3], obj[4], obj[5], obj[6]))
+            result.MainScene.ObjectsOnScene.append((inst_name, position, obj[2], obj[3], obj[4], obj[5], obj[6]))
             return
     
     print(f"create_instance({obj_name}, {inst_name}, {position}): The entered object does not exist!")
@@ -272,7 +302,7 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
 
     position = numpy.array([position[0], position[1], position[2], 1])
 
-    Result.MainScene.ObjectsOnScene.append([name, position, sizeX, sizeY, sizeZ, vertices, edges])
+    result.MainScene.ObjectsOnScene.append([name, position, sizeX, sizeY, sizeZ, vertices, edges])
 
 def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int) -> None:
     vertices = []
@@ -303,7 +333,7 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
 
     position = numpy.array([position[0], position[1], position[2], 1.0])
 
-    Result.MainScene.ObjectsOnScene.append([name, position, radius, segments, rings, vertices, edges])
+    result.MainScene.ObjectsOnScene.append([name, position, radius, segments, rings, vertices, edges])
 
 def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool) -> None:
     vertices = []
@@ -333,7 +363,7 @@ def create_cone(position: tuple, name: str, radius: float, height: float, segmen
     vertices.append(apex)
     position = numpy.array([position[0], position[1], position[2], 1.0])
 
-    Result.MainScene.ObjectsOnScene.append([name, position, radius, height, segments, vertices, edges])
+    result.MainScene.ObjectsOnScene.append([name, position, radius, height, segments, vertices, edges])
 
 def load_model(directory: str, position: tuple, name: str) -> None:
     import re
@@ -377,7 +407,7 @@ def load_model(directory: str, position: tuple, name: str) -> None:
 
     position = numpy.array([position[0], position[1], position[2], 1.0])
 
-    Result.MainScene.ObjectsOnScene.append([name, position, None, None, None, vertices, edges])
+    result.MainScene.ObjectsOnScene.append([name, position, None, None, None, vertices, edges])
 #! ----------
 
 #! Edit mode
