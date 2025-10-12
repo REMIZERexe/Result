@@ -6,8 +6,15 @@ from api.app.init import Widget
 from PyQt6.QtGui import QSurfaceFormat
 from PyQt6.QtWidgets import QApplication
 
-# TODO: Fix load_model() not reading verticies with "e".
-# TODO: Add vertices post-processing for rendering in camera view.
+# BUGS:
+# - Fix load_model() not reading verticies with "e".
+
+# TODO: Make an UI with options and stuff, and a toolbar.
+# TODO: Finally make a proper README.md
+# TODO: Add solid rendering, and switching between wireframe, solid, wireframe+solid.
+# TODO: Add really simple basic lighting (depending on camera angle) for solid rendering.
+# TODO: Add textures and texture mode.
+# TODO: Add complex working lighting and lit mode.
 
 class AbstractWindow(Widget):
     def on_init(self):
