@@ -9,11 +9,6 @@ from PyQt6.QtWidgets import QApplication
 # BUGS:
 # - Fix load_model() not reading verticies with "e".
 
-# TODO: Make an UI with options and stuff, and a toolbar.
-# TODO: Finally make a proper README.md
-# TODO: Add solid rendering, and switching between wireframe, solid, wireframe+solid.
-# TODO: Add really simple basic lighting (depending on camera angle) for solid rendering.
-# TODO: Add textures and texture mode.
 # TODO: Add complex working lighting and lit mode.
 
 class AbstractWindow(Widget):
@@ -25,11 +20,22 @@ class AbstractWindow(Widget):
 
         camera.Position = [-100, 0, 0]
 
-    def main(self): 
-        create_cone((0, 0, 0), "Cone", 40, 50, 4, False)
+    def main(self):
+        load_texture("grass", "assets/textures/grass.jpg")
+        load_texture("bricks", "assets/textures/bricks.jpg")
+
+        create_plane("plane", (0, 0, 0), 1000.0, 1000.0, 512, (0.1, 0.3, 1.0, 1.0))
+        set_object_texture("plane", "grass")
+
+        create_cube((0, 30, 0), "Cube", 50, 50, 50, (1.0, 1.0, 0, 1.0))
+        set_object_texture("Cube", "bricks")
+        apply_noise("plane", 1, -20, 60, 80, 0.003, 6, 0.45, 2.0)
+        sync_object_to_gpu("plane")
+        create_sphere((0, 100, 0), "ball", 50.0, 50, 50, (0.9, 0.1, 0.3, 1.0))
+        load_model("assets/models/v1.obj", (100, 100, 0), "V1", (0.0, 0.0, 1.0, 1.0))
 
     def update_scene(self):
-        rotate_object("y", "Cone", 1.0)
+        return
 
 fmt = QSurfaceFormat()
 fmt.setVersion(3, 3)
