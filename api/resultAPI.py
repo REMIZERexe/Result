@@ -4,6 +4,19 @@ sys.dont_write_bytecode = True
 from configparser import ConfigParser
 config = ConfigParser()
 import os
+# def get_resource_path(relative_path):
+#     """Get absolute path to resource, works for dev and PyInstaller"""
+#     try:
+#         # PyInstaller creates a temp folder and stores path in _MEIPASS
+#         base_path = sys._MEIPASS
+#     except Exception:
+#         base_path = os.path.abspath(".")
+    
+#     return os.path.join(base_path, relative_path)
+
+# # Then in your config loading code:
+# config_path = get_resource_path('config.ini')
+# config.read(config_path)
 config.read(os.path.join(os.path.dirname(__file__), "app/config.ini"))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from typing import Callable
@@ -305,34 +318,45 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
     result.MainScene.ObjectsOnScene.append([name, position, sizeX, sizeY, sizeZ, vertices, edges])
 
 def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int) -> None:
-    vertices = []
-    edges = []
-
-    for i in range(rings):
-        theta = math.pi * i / (rings - 1)
-        for j in range(segments):
-            phi = 2 * math.pi * j / segments
-
-            x = radius * math.cos(phi) * math.sin(theta)
-            z = radius * math.sin(phi) * math.sin(theta)
-            y = radius * math.cos(theta)
-
-            vertices.append((x, y, z, 1))
+    num_vertices = rings * segments
+    vertices = numpy.zeros((num_vertices, 4), dtype=numpy.float32)
+    
+    theta_values = numpy.linspace(0, numpy.pi, rings)
+    phi_values = numpy.linspace(0, 2 * numpy.pi, segments)
+    
+    idx = 0
+    for i, theta in enumerate(theta_values):
+        sin_theta = numpy.sin(theta)
+        cos_theta = numpy.cos(theta)
+        
+        for j, phi in enumerate(phi_values):
+            x = radius * numpy.cos(phi) * sin_theta
+            z = radius * numpy.sin(phi) * sin_theta
+            y = radius * cos_theta
+            
+            vertices[idx] = [x, y, z, 1.0]
+            idx += 1
+    
+    num_edges = rings * segments + (rings - 1) * segments
+    edges = numpy.zeros((num_edges, 2), dtype=numpy.int32)
+    
+    edge_idx = 0
     
     for i in range(rings):
         for j in range(segments):
             current = i * segments + j
+            
             right = i * segments + (j + 1) % segments
-            if j < segments - 1 or True:
-                edges.append((current, right))
-
+            edges[edge_idx] = [current, right]
+            edge_idx += 1
+            
             if i < rings - 1:
                 below = (i + 1) * segments + j
-                edges.append((current, below))
-                numpy.array(edges)
-
-    position = numpy.array([position[0], position[1], position[2], 1.0])
-
+                edges[edge_idx] = [current, below]
+                edge_idx += 1
+    
+    position = numpy.array([position[0], position[1], position[2], 1.0], dtype=numpy.float32)
+    
     result.MainScene.ObjectsOnScene.append([name, position, radius, segments, rings, vertices, edges])
 
 def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool) -> None:

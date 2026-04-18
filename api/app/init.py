@@ -9,9 +9,12 @@ from OpenGL.GL.shaders import compileShader, compileProgram
 from PyQt6.QtCore import QTimer
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QCursor
+from PyQt6 import QtWidgets
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QSlider, QWidget, QMenu, QComboBox, QLineEdit
 
 import api.resultAPI
 import api.shaders.shaders
+from api.app.widgets import Toolbar
 
 class Widget(QOpenGLWidget):
     def __init__(self):
@@ -37,6 +40,9 @@ class Widget(QOpenGLWidget):
         self.damping = api.resultAPI.config.getfloat("camera", "damping")
         self.last_mouse_pos = None
         self.mouse_captured = False
+
+        # UI Menu
+        self.menu_panel = None
 
         self.fpsTimer = QTimer(self)
         self.tpsTimer = QTimer(self)
@@ -127,6 +133,8 @@ class Widget(QOpenGLWidget):
             matrices = api.resultAPI.Matrices()
             api.resultAPI.set_matrices_instance(matrices)
 
+            self.menu_panel = Toolbar(self)  # Pass self as parent!
+
             self.main()
             self.tpsTimer.start(round(1000 / api.resultAPI.config.getint("settings", "tps")))
             self.fpsTimer.start(round(1000 / api.resultAPI.config.getint("settings", "fps")))
@@ -141,12 +149,18 @@ class Widget(QOpenGLWidget):
                 self.showNormal()
             else:
                 self.showFullScreen()
+        if e.key() == Qt.Key.Key_F1:
+            self.menu_panel.menu_showhide()
 
     def keyReleaseEvent(self, e):
         if e.key() in self.keys_pressed:
             self.keys_pressed.remove(e.key())
 
     def mousePressEvent(self, e):
+    # Don't capture mouse if clicking on menu
+        if self.menu_panel and self.menu_panel.isVisible() and e.pos().x() < 250:
+            return
+        
         if not self.mouse_captured:
             self.capture_mouse()
 
