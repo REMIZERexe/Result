@@ -2,6 +2,7 @@ import sys
 
 sys.dont_write_bytecode = True
 import numpy
+import time
 
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
@@ -10,26 +11,32 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QCursor
 from PyQt6 import QtWidgets
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QPushButton, QSlider, QWidget, QMenu, QComboBox, QLineEdit
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget, QMenu, QComboBox, QLineEdit
 
 import api.resultAPI
 import api.shaders.shaders
-from api.app.widgets import Toolbar
+from api.app.toolbar import Toolbar
+from api.app.info import Info
 from api.resultAPI import load_texture
 
-class Widget(QOpenGLWidget):
+class App(QOpenGLWidget):
     def __init__(self):
         super().__init__()
         api.resultAPI.set_result_instance()
         self.setWindowTitle("Result3D [pre-alpha]")
         self.resize(api.resultAPI.config.getint("window", "width"), api.resultAPI.config.getint("window", "height"))
         self.setMouseTracking(True)
+        
+        self.initialized = False
 
         self.shader = None
         self.vao = None
         self.vbo = None
+
         self.keys_pressed = set()
-        self.initialized = False
+
+        self.deltaTime = 0
+        
         self.on_init()
 
         # Camera
@@ -42,9 +49,21 @@ class Widget(QOpenGLWidget):
         self.last_mouse_pos = None
         self.mouse_captured = False
 
-        # UI Menu
-        self.menu_panel = None
+        # UI
+        self.root = QHBoxLayout(self)
+        self.root.setContentsMargins(10, 12, 10, 12)
 
+        self.menu_panel = None
+        self.info = None
+
+        # FPS counter
+        self.update_interval = 1.0
+        self.last_time = time.perf_counter()
+        self.accumulated_time = 0.0
+        self.frame_count = 0
+        self.fps = 0.0
+
+        # Threads
         self.fpsTimer = QTimer(self)
         self.tpsTimer = QTimer(self)
         self.fpsTimer.timeout.connect(self.update_frame)
@@ -118,6 +137,7 @@ class Widget(QOpenGLWidget):
 
             if self.menu_panel.solid and tri_count > 0:
                 glUniform4f(color_loc, *color)
+                glUniform1i(use_tex_loc, 0)
 
                 glBindVertexArray(vao_solid)
                 glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
@@ -146,7 +166,6 @@ class Widget(QOpenGLWidget):
 
             if self.menu_panel.wireframe:
                 glDisable(GL_POLYGON_OFFSET_FILL)
-                glUniform1i(use_tex_loc, 0)
                 glUniform4f(color_loc, 0.0, 0.0, 0.0, 1.0)
                 glBindVertexArray(vao_wire)
                 glDrawElements(GL_LINES, edge_count, GL_UNSIGNED_INT, None)
@@ -179,6 +198,23 @@ class Widget(QOpenGLWidget):
         pass
 
     def update_frame(self):
+        # FPS counter
+        current_time = time.perf_counter()
+        dt = current_time - self.last_time
+        self.last_time = current_time
+
+        self.accumulated_time += dt
+        self.frame_count += 1
+
+        if self.accumulated_time >= self.update_interval:
+            self.fps = self.frame_count / self.accumulated_time
+            self.info.fps.setText(f"{round(self.fps, 3)}")
+            self.accumulated_time = 0.0
+            self.frame_count = 0
+        
+        self.deltaTime = dt
+        # -------------
+
         api.resultAPI.result.EdgeBuffer.clear()
         api.resultAPI.render_scene()
 
@@ -198,6 +234,11 @@ class Widget(QOpenGLWidget):
 
             self.menu_panel = Toolbar(self)
             self.menu_panel.hide()
+
+            self.info = Info(self)
+
+            self.root.addWidget(self.menu_panel)
+            self.root.addWidget(self.info, alignment=Qt.AlignmentFlag.AlignRight)
 
             load_texture("missing", "assets/textures/missing.png")
 

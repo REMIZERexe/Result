@@ -4,13 +4,29 @@ sys.dont_write_bytecode = True
 from configparser import ConfigParser
 config = ConfigParser()
 import os
-config.read(os.path.join(os.path.dirname(__file__), "app/config.ini"))
+
+def get_base_path():
+    import sys
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    # api/resultAPI.py → dirname → api/ → join app/ → api/app/
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "app")
+
+config.read(os.path.join(get_base_path(), "config.ini"))
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from typing import Callable
 import math
 import numpy
 import random
 from opensimplex import OpenSimplex
+
+def get_assets_path():
+    import sys
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    # Go up from api/resultAPI.py two levels to project root
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _triangulate_quads(faces) -> list:
     """Convert quad face list [(a,b,c,d), ...] into triangle index list."""
@@ -241,6 +257,7 @@ class Result:
         self.RenderList = []
         self.Textures = {}
         self.PendingTextures = {}
+        self.ObjectRotations = {}
 #! ----------
 
 #! Settings by default
@@ -274,9 +291,14 @@ def render_scene() -> None:
         color    = obj[8] if len(obj) > 8 else [1.0, 1.0, 1.0, 1.0]
 
         TRANS = result.Matrices.getTrans_matrix(*position[:3])
-        MVP   = numpy.ascontiguousarray((TRANS @ VIEW @ PROJ), dtype=numpy.float32)
 
-        # Store name instead of GPU handles — upload happens in paintGL
+        # Apply stored per-object rotation (no vertex mutation needed)
+        rot = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
+        ROT = (result.Matrices.getxRot_matrix(rot[0])
+             @ result.Matrices.getyRot_matrix(rot[1])
+             @ result.Matrices.getzRot_matrix(rot[2]))
+
+        MVP = numpy.ascontiguousarray((ROT @ TRANS @ VIEW @ PROJ), dtype=numpy.float32)
         result.RenderList.append((name, MVP, color))
 
 def load_texture(texture_name: str, path: str) -> None:
@@ -386,11 +408,10 @@ def upload_object_to_gpu(obj) -> None:
                                vao_wire,  len(raw_edges))
 
 def sync_object_to_gpu(obj_name: str) -> None:
-    """Call this after modifying vertices (apply_noise, etc.) to re-sync the GPU buffer."""
     from OpenGL.GL import glBindBuffer, glBufferData, GL_ARRAY_BUFFER, GL_STATIC_DRAW
     for obj in result.MainScene.ObjectsOnScene:
         if obj[0] == obj_name and obj_name in result.GPUBuffers:
-            vao, vbo, ebo, edge_count = result.GPUBuffers[obj_name]
+            vao, vbo, ebo_edges, edge_count, ebo_tris, tri_count = result.GPUBuffers[obj_name]  # ← was 4-tuple
             raw_verts = numpy.array(obj[5], dtype=numpy.float32)
             if raw_verts.shape[1] == 4:
                 raw_verts = raw_verts[:, :3]
@@ -462,29 +483,14 @@ def apply_noise(obj_name: str, noise: int, min_height: int, max_height: int,
 
     print(f"apply_noise({obj_name}, ...): Object not found!")
 
-def rotate_object(axis: str, obj_name: str, angle: float) -> None:
-    if axis.upper() != "X" and axis.upper() != "Y" and axis.upper() != "Z":
-        print(f"rotate_object({axis}, {obj_name}, {angle}): You can't rotate an object on a non-existent axis!")
-        return
-    
-    for obj in result.MainScene.ObjectsOnScene:
-        if obj[0] == obj_name:
-            vertices = obj[5]
-            rotated = []
+def set_object_rotation(name: str, rx: float, ry: float, rz: float) -> None:
+    """Set absolute rotation (degrees) for an object. No vertex mutation."""
+    result.ObjectRotations[name] = (rx, ry, rz)
 
-            for vertex in vertices:
-                match axis.upper():
-                    case "X":
-                        rotated.append(result.Matrices.getxRot_matrix(angle) @ vertex)
-                    case "Y":
-                        rotated.append(result.Matrices.getyRot_matrix(angle) @ vertex)
-                    case "Z":
-                        rotated.append(result.Matrices.getzRot_matrix(angle) @ vertex)
-
-            obj[5] = rotated
-            return
-    
-    print(f"rotate_object({axis}, {obj_name}, {angle}): The entered object does not exist!")
+def rotate_object_by(name: str, drx: float, dry: float, drz: float) -> None:
+    """Increment rotation (degrees) for an object each tick. Use this in update_scene()."""
+    rx, ry, rz = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
+    result.ObjectRotations[name] = (rx + drx, ry + dry, rz + drz)
 
 def move_object(by_x: float, by_y: float, by_z: float, object_name: str) -> None:
     for obj in result.MainScene.ObjectsOnScene:
@@ -589,6 +595,7 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float,
         (0,3,7,4), (1,5,6,2),  # top, bottom
     ]
     triangles = _triangulate_quads(faces)
+    
     uvs = [_box_uv(x, y, z) for (x, y, z, _) in vertices]
 
     position = numpy.array([position[0], position[1], position[2], 1])
