@@ -3,6 +3,7 @@ import sys
 sys.dont_write_bytecode = True
 import numpy
 import time
+import ctypes
 
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import *
@@ -89,6 +90,44 @@ class App(QOpenGLWidget):
         self.vao = glGenVertexArrays(1)
         self.vbo = glGenBuffers(1)
 
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.mouse_captured:
+            return
+
+        from PyQt6.QtGui import QPainter, QPen, QColor
+        from PyQt6.QtCore import QPoint
+
+        cx = self.width()  // 2
+        cy = self.height() // 2
+        size   =  7  # half-length of each arm
+        gap    =  0  # gap around center
+        thick  =  2  # line thickness
+
+        painter = QPainter(self)
+
+        # Dark outline for contrast against bright backgrounds
+        outline = QPen(QColor(0, 0, 0, 160))
+        outline.setWidth(thick + 2)
+        outline.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(outline)
+        painter.drawLine(QPoint(cx - size, cy), QPoint(cx - gap, cy))
+        painter.drawLine(QPoint(cx + gap,  cy), QPoint(cx + size, cy))
+        painter.drawLine(QPoint(cx, cy - size), QPoint(cx, cy - gap))
+        painter.drawLine(QPoint(cx, cy + gap),  QPoint(cx, cy + size))
+
+        # White inner line
+        inner = QPen(QColor(255, 255, 255, 200))
+        inner.setWidth(thick)
+        inner.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(inner)
+        painter.drawLine(QPoint(cx - size, cy), QPoint(cx - gap, cy))
+        painter.drawLine(QPoint(cx + gap,  cy), QPoint(cx + size, cy))
+        painter.drawLine(QPoint(cx, cy - size), QPoint(cx, cy - gap))
+        painter.drawLine(QPoint(cx, cy + gap),  QPoint(cx, cy + size))
+
+        painter.end()
+
     def paintGL(self):
         if not self.initialized:
             return
@@ -96,11 +135,11 @@ class App(QOpenGLWidget):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glUseProgram(self.shader)
 
-        mvp_loc      = glGetUniformLocation(self.shader, "MVP")
-        color_loc    = glGetUniformLocation(self.shader, "objectColor")
-        fwd_loc      = glGetUniformLocation(self.shader, "cameraForward")
-        tex_loc      = glGetUniformLocation(self.shader, "texSampler")
-        use_tex_loc  = glGetUniformLocation(self.shader, "useTexture")
+        mvp_loc     = glGetUniformLocation(self.shader, "MVP")
+        color_loc   = glGetUniformLocation(self.shader, "objectColor")
+        fwd_loc     = glGetUniformLocation(self.shader, "cameraForward")
+        tex_loc     = glGetUniformLocation(self.shader, "texSampler")
+        use_tex_loc = glGetUniformLocation(self.shader, "useTexture")
 
         # Camera forward
         yaw_rad   = numpy.radians(self.cam.Yaw)
@@ -113,16 +152,16 @@ class App(QOpenGLWidget):
         forward /= numpy.linalg.norm(forward)
         glUniform3f(fwd_loc, *forward)
 
-        # Upload any textures that arrived since last frame
-        for tex_name, (data, w, h) in list(api.resultAPI.result.PendingTextures.items()):
-            api.resultAPI._upload_texture_to_gpu(tex_name, data, w, h)
+        # Upload any textures that arrived since last frame (now unpacks 4-tuple with tex_filter)
+        for tex_name, (data, w, h, tex_filter) in list(api.resultAPI.result.PendingTextures.items()):
+            api.resultAPI._upload_texture_to_gpu(tex_name, data, w, h, tex_filter)
             del api.resultAPI.result.PendingTextures[tex_name]
 
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_POLYGON_OFFSET_FILL)
         glPolygonOffset(1.0, 1.0)
 
-        glUniform1i(tex_loc, 0)   # texture unit 0
+        glUniform1i(tex_loc, 0)  # texture unit 0
 
         for name, mvp, color in api.resultAPI.result.RenderList:
             if name not in api.resultAPI.result.GPUBuffers:
@@ -130,43 +169,57 @@ class App(QOpenGLWidget):
                         if o[0] == name)
                 api.resultAPI.upload_object_to_gpu(obj)
 
-            vao_solid, tri_count, vao_wire, edge_count = \
+            vao_solid, tri_count, vao_wire, edge_count, mat_groups = \
                 api.resultAPI.result.GPUBuffers[name]
 
             glUniformMatrix4fv(mvp_loc, 1, GL_TRUE, mvp)
 
+            # ── Solid (untextured flat color) ──────────────────────────────────
             if self.menu_panel.solid and tri_count > 0:
                 glUniform4f(color_loc, *color)
                 glUniform1i(use_tex_loc, 0)
-
                 glBindVertexArray(vao_solid)
                 glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
 
-            if self.menu_panel.textured:
-                # Bind texture if this object has one
-                obj      = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
-                                if o[0] == name)
-                tex_name = obj[10] if len(obj) > 10 else None
-                if tex_name and tex_name in api.resultAPI.result.Textures:
-                    from OpenGL.GL import glActiveTexture, glBindTexture, GL_TEXTURE0, GL_TEXTURE_2D
-                    glActiveTexture(GL_TEXTURE0)
-                    glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures[tex_name])
-                    glUniform1i(use_tex_loc, 1)
+            # ── Textured ───────────────────────────────────────────────────────
+            if self.menu_panel.textured and tri_count > 0:
+                obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
+                        if o[0] == name)
+                glBindVertexArray(vao_solid)
+
+                if mat_groups:
+                    # Multi-material (imported models): one draw call per material group
+                    for tex_name, byte_offset, count in mat_groups:
+                        resolved = (tex_name
+                                    if tex_name and tex_name in api.resultAPI.result.Textures
+                                    else "missing")
+                        if resolved in api.resultAPI.result.Textures:
+                            glActiveTexture(GL_TEXTURE0)
+                            glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures[resolved])
+                            glUniform1i(use_tex_loc, 1)
+                        else:
+                            glUniform1i(use_tex_loc, 0)
+                        glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT,
+                                    ctypes.c_void_p(byte_offset))
                 else:
-                    from OpenGL.GL import glActiveTexture, glBindTexture, GL_TEXTURE0, GL_TEXTURE_2D
-                    glActiveTexture(GL_TEXTURE0)
-                    glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures["missing"])
-                    glUniform1i(use_tex_loc, 1)
-                
-                glBindVertexArray(vao_solid)
-                glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
+                    # Single texture (manually created objects: cube, plane, sphere...)
+                    tex_name = obj[10] if len(obj) > 10 and isinstance(obj[10], str) else None
+                    resolved = (tex_name
+                                if tex_name and tex_name in api.resultAPI.result.Textures
+                                else "missing")
+                    if resolved in api.resultAPI.result.Textures:
+                        glActiveTexture(GL_TEXTURE0)
+                        glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures[resolved])
+                        glUniform1i(use_tex_loc, 1)
+                    else:
+                        glUniform1i(use_tex_loc, 0)
+                    glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
 
-            if self.menu_panel.lit:
-                continue
-
-            if self.menu_panel.wireframe:
+            # ── Wireframe ──────────────────────────────────────────────────────
+            if not self.menu_panel.lit and self.menu_panel.wireframe:
                 glDisable(GL_POLYGON_OFFSET_FILL)
                 glUniform4f(color_loc, 0.0, 0.0, 0.0, 1.0)
+                glUniform1i(use_tex_loc, 0)
                 glBindVertexArray(vao_wire)
                 glDrawElements(GL_LINES, edge_count, GL_UNSIGNED_INT, None)
                 glEnable(GL_POLYGON_OFFSET_FILL)
