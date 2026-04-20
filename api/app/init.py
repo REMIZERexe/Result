@@ -129,19 +129,20 @@ class App(QOpenGLWidget):
         painter.end()
 
     def paintGL(self):
+        import ctypes
         if not self.initialized:
             return
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glUseProgram(self.shader)
 
-        mvp_loc     = glGetUniformLocation(self.shader, "MVP")
-        color_loc   = glGetUniformLocation(self.shader, "objectColor")
-        fwd_loc     = glGetUniformLocation(self.shader, "cameraForward")
-        tex_loc     = glGetUniformLocation(self.shader, "texSampler")
-        use_tex_loc = glGetUniformLocation(self.shader, "useTexture")
+        mvp_loc      = glGetUniformLocation(self.shader, "MVP")
+        color_loc    = glGetUniformLocation(self.shader, "objectColor")
+        fwd_loc      = glGetUniformLocation(self.shader, "cameraForward")
+        tex_loc      = glGetUniformLocation(self.shader, "texSampler")
+        use_tex_loc  = glGetUniformLocation(self.shader, "useTexture")
+        shading_loc  = glGetUniformLocation(self.shader, "useShading")
 
-        # Camera forward
         yaw_rad   = numpy.radians(self.cam.Yaw)
         pitch_rad = numpy.radians(self.cam.Pitch)
         forward   = numpy.array([
@@ -152,7 +153,6 @@ class App(QOpenGLWidget):
         forward /= numpy.linalg.norm(forward)
         glUniform3f(fwd_loc, *forward)
 
-        # Upload any textures that arrived since last frame (now unpacks 4-tuple with tex_filter)
         for tex_name, (data, w, h, tex_filter) in list(api.resultAPI.result.PendingTextures.items()):
             api.resultAPI._upload_texture_to_gpu(tex_name, data, w, h, tex_filter)
             del api.resultAPI.result.PendingTextures[tex_name]
@@ -160,10 +160,9 @@ class App(QOpenGLWidget):
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_POLYGON_OFFSET_FILL)
         glPolygonOffset(1.0, 1.0)
+        glUniform1i(tex_loc, 0)
 
-        glUniform1i(tex_loc, 0)  # texture unit 0
-
-        for name, mvp, color in api.resultAPI.result.RenderList:
+        for name, mvp, color, flat_shading in api.resultAPI.result.RenderList:
             if name not in api.resultAPI.result.GPUBuffers:
                 obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
                         if o[0] == name)
@@ -173,22 +172,22 @@ class App(QOpenGLWidget):
                 api.resultAPI.result.GPUBuffers[name]
 
             glUniformMatrix4fv(mvp_loc, 1, GL_TRUE, mvp)
+            glUniform1i(shading_loc, 1 if flat_shading else 0)
 
-            # ── Solid (untextured flat color) ──────────────────────────────────
-            if self.menu_panel.solid and tri_count > 0:
+            # ── Solid ──────────────────────────────────────────────────────────
+            if api.resultAPI.result.solid and tri_count > 0:
                 glUniform4f(color_loc, *color)
                 glUniform1i(use_tex_loc, 0)
                 glBindVertexArray(vao_solid)
                 glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
 
             # ── Textured ───────────────────────────────────────────────────────
-            if self.menu_panel.textured and tri_count > 0:
+            if api.resultAPI.result.textured and tri_count > 0:
                 obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
                         if o[0] == name)
                 glBindVertexArray(vao_solid)
 
                 if mat_groups:
-                    # Multi-material (imported models): one draw call per material group
                     for tex_name, byte_offset, count in mat_groups:
                         resolved = (tex_name
                                     if tex_name and tex_name in api.resultAPI.result.Textures
@@ -202,7 +201,6 @@ class App(QOpenGLWidget):
                         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT,
                                     ctypes.c_void_p(byte_offset))
                 else:
-                    # Single texture (manually created objects: cube, plane, sphere...)
                     tex_name = obj[10] if len(obj) > 10 and isinstance(obj[10], str) else None
                     resolved = (tex_name
                                 if tex_name and tex_name in api.resultAPI.result.Textures
@@ -216,7 +214,7 @@ class App(QOpenGLWidget):
                     glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
 
             # ── Wireframe ──────────────────────────────────────────────────────
-            if not self.menu_panel.lit and self.menu_panel.wireframe:
+            if not api.resultAPI.result.lit and api.resultAPI.result.wireframe:
                 glDisable(GL_POLYGON_OFFSET_FILL)
                 glUniform4f(color_loc, 0.0, 0.0, 0.0, 1.0)
                 glUniform1i(use_tex_loc, 0)

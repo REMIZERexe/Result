@@ -7,7 +7,7 @@ layout(location = 2) in vec2 uv;
 uniform mat4 MVP;
 
 flat out vec3 fragNormal;
-out vec2 fragUV;          // NOT flat — needs to interpolate across the triangle
+out vec2 fragUV;
 
 void main() {
     gl_Position = vec4(position, 1.0) * MVP;
@@ -25,14 +25,19 @@ uniform vec4      objectColor;
 uniform vec3      cameraForward;
 uniform sampler2D texSampler;
 uniform bool      useTexture;
+uniform bool      useShading;
 
 out vec4 FragColor;
 
 void main() {
-    float shade = abs(dot(normalize(fragNormal), normalize(cameraForward)));
-    shade = 0.25 + shade * 0.75;
-
     vec4 base = useTexture ? texture(texSampler, fragUV) : objectColor;
-    FragColor  = vec4(base.rgb * shade, base.a);
+
+    if (useShading) {
+        float shade = abs(dot(normalize(fragNormal), normalize(cameraForward)));
+        shade = 0.25 + shade * 0.75;
+        FragColor = vec4(base.rgb * shade, base.a);
+    } else {
+        FragColor = base;
+    }
 }
 """

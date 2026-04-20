@@ -43,6 +43,34 @@ def _triangulate_quads(faces) -> list:
                 tris.extend([f[0], f[i], f[i + 1]])
     return tris
 
+def _compute_smooth_normals(vertices, triangles):
+    """Average normals across shared vertices for smooth shading."""
+    verts = numpy.array(vertices, dtype=numpy.float32)
+    if verts.ndim == 2 and verts.shape[1] == 4:
+        verts = verts[:, :3]
+    tris  = numpy.array(triangles, dtype=numpy.int32).reshape(-1, 3)
+
+    normals = numpy.zeros_like(verts)
+
+    v0 = verts[tris[:, 0]]
+    v1 = verts[tris[:, 1]]
+    v2 = verts[tris[:, 2]]
+    face_normals = numpy.cross(v1 - v0, v2 - v0)
+
+    # Accumulate face normals into each vertex
+    for i in range(3):
+        numpy.add.at(normals, tris[:, i], face_normals)
+
+    # Normalize
+    lengths = numpy.linalg.norm(normals, axis=1, keepdims=True)
+    lengths = numpy.where(lengths == 0.0, 1.0, lengths)
+    normals /= lengths
+
+    seq_indices = numpy.arange(len(verts), dtype=numpy.uint32)
+    return (verts.astype(numpy.float32),
+            normals.astype(numpy.float32),
+            seq_indices)
+
 def _compute_flat_normals(vertices, triangles) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """
     Returns (expanded_verts, expanded_normals, sequential_indices) where
@@ -258,6 +286,12 @@ class Result:
         self.Matrices = None
         self.WindowParam = None
 
+        # Rendering Settings
+        self.solid = False
+        self.textured = True
+        self.lit = False
+        self.wireframe = False
+
         self.VertexBuffer = []
         self.EdgeBuffer = []
         self.GPUBuffers = {}
@@ -293,20 +327,19 @@ def render_scene() -> None:
     PROJ = result.Matrices.ProjMatrix
 
     for obj in result.MainScene.ObjectsOnScene:
-        name     = obj[0]
-        position = obj[1]
-        color    = obj[8] if len(obj) > 8 else [1.0, 1.0, 1.0, 1.0]
+        name         = obj[0]
+        position     = obj[1]
+        color        = obj[8] if len(obj) > 8 else [1.0, 1.0, 1.0, 1.0]
+        flat_shading = obj[11] if len(obj) > 11 and obj[11] is not None else True
 
         TRANS = result.Matrices.getTrans_matrix(*position[:3])
-
-        # Apply stored per-object rotation (no vertex mutation needed)
-        rot = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
-        ROT = (result.Matrices.getxRot_matrix(rot[0])
-             @ result.Matrices.getyRot_matrix(rot[1])
-             @ result.Matrices.getzRot_matrix(rot[2]))
+        rot   = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
+        ROT   = (result.Matrices.getxRot_matrix(rot[0])
+               @ result.Matrices.getyRot_matrix(rot[1])
+               @ result.Matrices.getzRot_matrix(rot[2]))
 
         MVP = numpy.ascontiguousarray((ROT @ TRANS @ VIEW @ PROJ), dtype=numpy.float32)
-        result.RenderList.append((name, MVP, color))
+        result.RenderList.append((name, MVP, color, flat_shading))
 
 def load_texture(texture_name: str, path: str, tex_filter: str = "linear") -> None:
     from PIL import Image
@@ -366,16 +399,27 @@ def upload_object_to_gpu(obj) -> None:
     else:
         scaled_uvs = raw_uvs
 
+    flat_shading = obj[13] if len(obj) > 13 and obj[13] is not None else True
+
     if len(raw_tris) > 0:
-        exp_verts, exp_normals, exp_uvs, seq_indices = \
-            _expand_for_flat_shading(obj[5], obj[7], scaled_uvs)
+        if flat_shading:
+            exp_verts, exp_normals, exp_uvs, seq_indices = \
+                _expand_for_flat_shading(obj[5], obj[7], scaled_uvs)
+        else:
+            exp_verts, exp_normals, seq_indices = \
+                _compute_smooth_normals(obj[5], obj[7])
+            if scaled_uvs is not None:
+                uv_arr  = numpy.array(scaled_uvs, dtype=numpy.float32).reshape(-1, 2)
+                exp_uvs = uv_arr  # smooth shading keeps original indices
+            else:
+                exp_uvs = numpy.zeros((len(exp_verts), 2), dtype=numpy.float32)
     else:
         exp_verts   = raw_verts
         exp_normals = numpy.zeros_like(raw_verts)
         exp_uvs     = numpy.zeros((len(raw_verts), 2), dtype=numpy.float32)
         seq_indices = numpy.array([], dtype=numpy.uint32)
 
-    vao_solid                            = glGenVertexArrays(1)
+    vao_solid                           = glGenVertexArrays(1)
     vbo_pos, vbo_nrm, vbo_uv, ebo_tris  = glGenBuffers(4)
 
     glBindVertexArray(vao_solid)
@@ -544,7 +588,7 @@ def set_object_texture(obj_name: str, texture_name: str,
 #! ----------
 
 #! Create objects
-def create_plane(name: str, position: tuple, sizeX: float, sizeZ: float, subdivision: int, color=(0.0, 0.0, 0.0, 1.0)) -> None:
+def create_plane(name: str, position: tuple, sizeX: float, sizeZ: float, subdivision: int, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
     offset_x = sizeX / 2
     offset_z = sizeZ / 2
 
@@ -589,7 +633,7 @@ def create_plane(name: str, position: tuple, sizeX: float, sizeZ: float, subdivi
 
     pos = numpy.array([position[0], position[1], position[2], 1])
     result.MainScene.ObjectsOnScene.append(
-        [name, pos, sizeX, faces, sizeZ, vertices, edges, triangles, list(color), uvs, None]
+        [name, pos, sizeX, faces, sizeZ, vertices, edges, triangles, list(_normalize_color(color)), uvs, None, flat_shading]
     )
 
 def _box_uv(x, y, z):
@@ -601,8 +645,7 @@ def _box_uv(x, y, z):
     else:
         return [(x / az + 1) / 2, (y / az + 1) / 2]
 
-def create_cube(position: tuple, name: str, sizeX: float, sizeY: float,
-                sizeZ: float, color=(0.0, 0.0, 0.0, 1.0)) -> None:
+def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: float, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
     hx, hy, hz = sizeX / 2, sizeY / 2, sizeZ / 2
 
     # 6 faces × 4 unique vertices = 24 verts, so each face can have its own UVs.
@@ -644,10 +687,10 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float,
 
     position = numpy.array([position[0], position[1], position[2], 1])
     result.MainScene.ObjectsOnScene.append(
-        [name, position, sizeX, sizeY, sizeZ, vertices, edges, triangles, list(color), uvs, None]
+        [name, position, sizeX, sizeY, sizeZ, vertices, edges, triangles, list(_normalize_color(color)), uvs, None, flat_shading]
     )
 
-def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int, color=(0.0, 0.0, 0.0, 1.0)) -> None:
+def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
     num_vertices = rings * segments
     vertices = numpy.zeros((num_vertices, 4), dtype=numpy.float32)
     
@@ -701,11 +744,10 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
 
     position = numpy.array([position[0], position[1], position[2], 1.0], dtype=numpy.float32)
     result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, segments, rings, vertices, edges, tris, list(color), uvs, None]
+        [name, position, radius, segments, rings, vertices, edges, tris, list(_normalize_color(color)), uvs, None, flat_shading]
     )
 
-def create_cone(position: tuple, name: str, radius: float, height: float,
-                segments: int, base_center: bool, color=(0.0, 0.0, 0.0, 1.0)) -> None:
+def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
     vertices = []
 
     # Base ring vertices
@@ -740,37 +782,30 @@ def create_cone(position: tuple, name: str, radius: float, height: float,
 
     position = numpy.array([position[0], position[1], position[2], 1.0])
     result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, height, segments, vertices, edges, tris, list(_normalize_color(color))]
+        [name, position, radius, height, segments, vertices, edges, tris, list(_normalize_color(color)), flat_shading]
     )
 
-def load_model(directory, position, name, color=(0.2, 0.2, 1.0, 1.0),
-               scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear"):
+def load_model(directory, position, name, color=(0.2, 0.2, 1.0, 1.0), scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear", flat_shading=True):
     ext = os.path.splitext(directory)[1].lower()
 
     if ext == ".obj":
-        _load_obj(directory, position, name, color, scale_x, scale_y, scale_z)
+        _load_obj(directory, position, name, color, scale_x, scale_y, scale_z, flat_shading)
     elif ext in (".gltf", ".glb"):
-        _load_gltf(directory, position, name, color, scale_x, scale_y, scale_z, tex_filter)
-    elif ext == ".fbx":
-        _load_fbx(directory, position, name, color, scale_x, scale_y, scale_z)
+        _load_gltf(directory, position, name, color, scale_x, scale_y, scale_z, tex_filter, flat_shading)
     else:
         print(f"load_model: unsupported format '{ext}'")
 
-
-def _append_model(position, name, color, vertices, uvs, triangles, edges,
-                  scale_x=1.0, scale_y=1.0, scale_z=1.0):
+def _append_model(position, name, color, vertices, uvs, triangles, edges, scale_x=1.0, scale_y=1.0, scale_z=1.0, flat_shading=True):
     vertices = numpy.array(vertices, dtype=numpy.float32)
     vertices[:, 0] *= scale_x
     vertices[:, 1] *= scale_y
     vertices[:, 2] *= scale_z
     pos = numpy.array([position[0], position[1], position[2], 1.0])
     result.MainScene.ObjectsOnScene.append(
-        [name, pos, None, None, None, vertices, edges, triangles, list(color), uvs, None]
+        [name, pos, None, None, None, vertices, edges, triangles, list(color), uvs, None, flat_shading]
     )
 
-
-def _load_obj(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0):
-    """Original OBJ parser — unchanged."""
+def _load_obj(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0, flat_shading=True):
     import re
     raw_positions = []
     raw_uvs_list  = []
@@ -813,11 +848,9 @@ def _load_obj(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_
         print(f"load_model({directory}, ...): {e}")
         return
 
-    _append_model(position, name, color, vertices, uvs, triangles, edges,
-                  scale_x, scale_y, scale_z)
+    _append_model(position, name, color, vertices, uvs, triangles, edges, scale_x, scale_y, scale_z, flat_shading)
 
-
-def _load_gltf(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear"):
+def _load_gltf(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear", flat_shading=True):
     try:
         from pygltflib import GLTF2
         from PIL import Image
@@ -861,26 +894,28 @@ def _load_gltf(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale
             return data
 
         def _load_image(img_idx) -> str:
-            """Load an embedded/external image, register in PendingTextures, return tex_name."""
             tex_name = f"{name}_tex_{img_idx}"
             if tex_name in result.Textures or tex_name in result.PendingTextures:
-                return tex_name  # already queued
+                return tex_name
 
             img_info = gltf.images[img_idx]
             pil_img  = None
 
             if img_info.bufferView is not None:
-                # Embedded binary (GLB)
-                bv       = gltf.bufferViews[img_info.bufferView]
-                offset   = bv.byteOffset or 0
+                # Embedded binary (GLB) — unchanged
+                bv        = gltf.bufferViews[img_info.bufferView]
+                offset    = bv.byteOffset or 0
                 img_bytes = blob[offset : offset + bv.byteLength]
-                pil_img  = Image.open(io.BytesIO(img_bytes))
+                pil_img   = Image.open(io.BytesIO(img_bytes))
             elif img_info.uri:
                 if img_info.uri.startswith("data:"):
+                    # Base64 embedded — unchanged
                     _, encoded = img_info.uri.split(",", 1)
                     pil_img = Image.open(io.BytesIO(base64.b64decode(encoded)))
                 else:
-                    img_path = os.path.join(os.path.dirname(directory), img_info.uri)
+                    # External file — look in assets/textures/ instead of model directory
+                    filename = os.path.basename(img_info.uri)
+                    img_path = os.path.join(get_assets_path(), "assets", "textures", filename)
                     pil_img  = Image.open(img_path)
 
             if pil_img:
@@ -936,52 +971,15 @@ def _load_gltf(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale
         _append_model(position, name, color,
                   numpy.array(all_verts, dtype=numpy.float32),
                   all_uvs, all_tris, all_edges,
-                  scale_x, scale_y, scale_z)
+                  scale_x, scale_y, scale_z, flat_shading)
         result.MainScene.ObjectsOnScene[-1][10] = mat_groups
 
     except Exception as e:
         import traceback
         print(f"load_model GLTF ({directory}): {e}")
         traceback.print_exc()
-
-
-def _load_fbx(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0):
-    try:
-        import trimesh
-
-        scene = trimesh.load(directory, force="scene")
-
-        # Merge all sub-meshes into one
-        meshes = list(scene.geometry.values()) if hasattr(scene, "geometry") else [scene]
-        mesh   = trimesh.util.concatenate(meshes)
-
-        vertices  = [[v[0] * 30, v[1] * 30, v[2] * 30, 1.0] for v in mesh.vertices]
-        triangles = mesh.faces.ravel().tolist()
-
-        edges = []
-        for face in mesh.faces:
-            edges.extend([(int(face[0]), int(face[1])),
-                          (int(face[1]), int(face[2])),
-                          (int(face[2]), int(face[0]))])
-
-        # UVs — trimesh stores them in visual.uv for TextureVisuals
-        uvs = []
-        if hasattr(mesh, "visual") and hasattr(mesh.visual, "uv") and mesh.visual.uv is not None:
-            uvs = mesh.visual.uv.tolist()
-        if len(uvs) != len(vertices):
-            uvs = [[0.0, 0.0]] * len(vertices)
-
-        _append_model(position, name, color, vertices, uvs, triangles, edges,
-                  scale_x, scale_y, scale_z)
-
-    except Exception as e:
-        print(f"load_model FBX ({directory}): {e}")
 #! ----------
 
 #! Edit mode
-
-#! ----------
-
-#! Character control functions
 
 #! ----------

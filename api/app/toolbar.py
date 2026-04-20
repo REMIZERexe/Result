@@ -10,6 +10,7 @@ import numpy
 import api.resultAPI
 
 import math
+from functools import partial
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
@@ -273,25 +274,25 @@ class _ModelPreview(QOpenGLWidget):
     clicked = pyqtSignal()
 
     _VERT = """
-        #version 330 core
-        layout(location = 0) in vec3 position;
-        layout(location = 1) in vec3 normal;
-        uniform mat4 MVP;
-        flat out vec3 fragNormal;
-        void main() {
-            gl_Position = vec4(position, 1.0) * MVP;
-            fragNormal = normal;
-        }
+    #version 330 core
+    layout(location = 0) in vec3 position;
+    layout(location = 1) in vec3 normal;
+    uniform mat4 MVP;
+    flat out vec3 fragNormal;
+    void main() {
+        gl_Position = vec4(position, 1.0) * MVP;
+        fragNormal = normal;
+    }
     """
     _FRAG = """
-        #version 330 core
-        flat in vec3 fragNormal;
-        out vec4 FragColor;
-        void main() {
-            vec3 light = normalize(vec3(1.0, 1.5, 0.8));
-            float shade = 0.3 + max(dot(normalize(fragNormal), light), 0.0) * 0.7;
-            FragColor = vec4(vec3(0.55, 0.65, 0.92) * shade, 1.0);
-        }
+    #version 330 core
+    flat in vec3 fragNormal;
+    out vec4 FragColor;
+    void main() {
+        vec3 light = normalize(vec3(1.0, 1.5, 0.8));
+        float shade = 0.3 + max(dot(normalize(fragNormal), light), 0.0) * 0.7;
+        FragColor = vec4(vec3(0.55, 0.65, 0.92) * shade, 1.0);
+    }
     """
 
     def __init__(self, model_path: str, parent=None):
@@ -304,6 +305,8 @@ class _ModelPreview(QOpenGLWidget):
         self._mvp         = None
         self._ready       = False
         self.selected     = False
+        self.hovered      = False
+        self.setMouseTracking(True)
 
     def set_selected(self, val: bool):
         self.selected = val
@@ -311,6 +314,14 @@ class _ModelPreview(QOpenGLWidget):
 
     def mousePressEvent(self, _event):
         self.clicked.emit()
+
+    def enterEvent(self, _event):
+        self.hovered = True
+        self.update()
+
+    def leaveEvent(self, _event):
+        self.hovered = False
+        self.update()
 
     def initializeGL(self):
         from OpenGL.GL import (glEnable, GL_DEPTH_TEST,
@@ -336,7 +347,6 @@ class _ModelPreview(QOpenGLWidget):
         if verts is None or len(tris) == 0:
             return
 
-        # Re-use the engine's flat-shading expander
         from api.resultAPI import _expand_for_flat_shading
         v4 = numpy.hstack([verts, numpy.ones((len(verts), 1), dtype=numpy.float32)])
         exp_v, exp_n, _, seq_idx = _expand_for_flat_shading(v4, tris)
@@ -370,9 +380,8 @@ class _ModelPreview(QOpenGLWidget):
                                glUseProgram, glGetUniformLocation, glUniformMatrix4fv, GL_TRUE,
                                glBindVertexArray, glDrawElements, GL_TRIANGLES, GL_UNSIGNED_INT)
 
-        # Purple tint when selected, dark grey otherwise
         if self.selected:
-            glClearColor(0.28, 0.0, 0.38, 1.0)
+            glClearColor(0.22, 0.0, 0.30, 1.0)
         else:
             glClearColor(0.13, 0.13, 0.13, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -387,6 +396,29 @@ class _ModelPreview(QOpenGLWidget):
         glDrawElements(GL_TRIANGLES, self._index_count, GL_UNSIGNED_INT, None)
         glBindVertexArray(0)
         glUseProgram(0)
+
+    def paintEvent(self, event):
+        # Let OpenGL render first
+        super().paintEvent(event)
+
+        # Then draw the border on top using QPainter
+        if not self.selected and not self.hovered:
+            return
+
+        from PyQt6.QtGui import QPainter, QPen, QColor
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        if self.selected:
+            pen = QPen(QColor(220, 0, 255, 255))
+        else:  # hovered
+            pen = QPen(QColor(160, 0, 200, 255))
+
+        pen.setWidth(3)
+        painter.setPen(pen)
+        # Inset by 1px so the border doesn't get clipped at widget edge
+        painter.drawRect(1, 1, self.width() - 2, self.height() - 2)
+        painter.end()
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text.upper())
@@ -627,9 +659,7 @@ class ModelBrowser(QDialog):
 
             preview = _ModelPreview(full_path)
             preview.setObjectName("mdl_item")
-            preview.clicked.connect(
-                lambda n=mdl_name, p=full_path: self._on_select(n, p)
-            )
+            preview.clicked.connect(partial(self._on_select, mdl_name, full_path))
             self._item_previews[mdl_name] = preview
             cell_layout.addWidget(preview)
 
@@ -849,11 +879,6 @@ class Toolbar(QWidget):
         # ── Rendering ──────────────────────────────────────────────────────
         root.addWidget(_section_label("Rendering"))
 
-        self.solid     = True
-        self.textured  = False
-        self.lit       = False
-        self.wireframe = True
-
         solid_btn = QPushButton()
         solid_btn.setCheckable(True)
         solid_btn.setIcon(QIcon("assets/icons/solid.png"))
@@ -881,20 +906,20 @@ class Toolbar(QWidget):
     # ── Slots ──────────────────────────────────────────────────────────────
 
     def _solid_toggle(self):
-        self.solid = not self.solid
-        if self.solid:
-            self.textured = False
+        api.resultAPI.result.solid = not api.resultAPI.result.solid
+        if api.resultAPI.result.solid:
+            api.resultAPI.result.textured = False
 
     def _textured_toggle(self):
-        self.textured = not self.textured
-        if self.textured:
-            self.solid = False
+        api.resultAPI.result.textured = not api.resultAPI.result.textured
+        if api.resultAPI.result.textured:
+            api.resultAPI.result.solid = False
 
     def _lit_toggle(self):
-        self.lit = not self.lit
+        api.resultAPI.result.lit = not api.resultAPI.result.lit
 
     def _wireframe_toggle(self):
-        self.wireframe = not self.wireframe
+        api.resultAPI.result.wireframe = not api.resultAPI.result.wireframe
 
     def _on_speed_changed(self, value: int):
         speed = value / 10.0
