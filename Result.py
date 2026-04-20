@@ -7,8 +7,10 @@ from api.app.init import App
 from PyQt6.QtGui import QSurfaceFormat, QFont, QFontDatabase
 from PyQt6.QtWidgets import QApplication
 
-# TODO: Code cleanup
 # TODO: Add complex working lighting and lit mode.
+
+# TODO: Fix textures not falling back to missing when none.
+# TODO: Fix camera speed not working
 # TODO: Start working on edit mode and more settings, windows, buttons, to do stuff in-engine
 
 # TODO: ..... PHYSICS! Source level physics. Like really good realistic physics
@@ -23,9 +25,15 @@ class AbstractWindow(App):
         camera.Position = [-100, 100, 0]
 
     def main(self):
+        self.sun = resultAPI.create_directional_light(
+            direction=(0.4, -1.0, 0.6),
+            color=(1.0, 1.0, 0.5),
+            ambient=0.15
+        )
+
         resultAPI.load_texture("grass", os.path.join(resultAPI.get_assets_path(), "assets/textures/grass.jpg"))
 
-        resultAPI.create_plane("plane", (0, 0, 0), 1000.0, 1000.0, 512, (0.1, 0.3, 1.0, 1.0), flat_shading=False)
+        resultAPI.create_plane("plane", (0, 0, 0), 1000.0, 1000.0, color=(0.1, 0.3, 1.0, 1.0), flat_shading=False)
         resultAPI.set_object_texture("plane", "grass", tiling_x=40.0, tiling_y=40.0)
         # apply_noise("plane", 1, -20, 60, 80, 0.003, 6, 0.45, 2.0)
 
@@ -57,7 +65,7 @@ class AbstractWindow(App):
         return
         # rotate_object_by("ball", 1.0, 1.0, 1.0)
 
-        # speed = 0.02
+        # speed = 0.2
 
         # self.position_x += speed * self.direction
 
@@ -77,7 +85,11 @@ app = QApplication(sys.argv)
 
 font_id = QFontDatabase.addApplicationFont("assets/fonts/W95F.otf")
 family = QFontDatabase.applicationFontFamilies(font_id)[0]
-app.setFont(QFont(family, 10))
+
+font = QFont(family, 10)
+font.setStyleStrategy(QFont.StyleStrategy.NoSubpixelAntialias)
+
+app.setFont(font)
 
 w = AbstractWindow()
 

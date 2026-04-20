@@ -166,18 +166,42 @@ _FILTERS = {
 }
 
 #! Result classes
-class Object:
-    def __init__(self) -> None:
-        self.Position = [0, 0, 0]
+class Model:
+    """All geometry and material data for a 3D object."""
+    def __init__(self):
+        self.vertices    = []
+        self.edges       = []
+        self.triangles   = []
+        self.uvs         = []
+        self.flat_shading = True
+        self.texture_name = None
+        self.tiling      = (1.0, 1.0)
+        self.tex_filter  = "linear"
 
-class Camera(Object):
+class SceneObject:
+    """An entity placed in the scene with position, rotation, and a Model."""
+    def __init__(self, name="", position=(0, 0, 0), rotation=(0.0, 0.0, 0.0), color=(1, 1, 1, 1), model=Model()):
+        self.name     = name
+        self.position = numpy.array([position[0], position[1], position[2], 1.0], dtype=numpy.float32)
+        self.rotation = (0.0, 0.0, 0.0)   # degrees: (rx, ry, rz)
+        self.color    = list(color)
+        self.model    = Model()
+
+class Camera(SceneObject):
     def __init__(self) -> None:
         super().__init__()
+        self.name = "MainCam"
 
-        self.Yaw = 0
+        self.Yaw   = 0
         self.Pitch = 0
-        self.Roll = 0
-        self.Fov = 110
+        self.Roll  = 0
+        self.Fov   = 110
+
+class DirectionalLight:
+    def __init__(self):
+        self.direction       = [0.5, -1.0, 0.3]   # world-space direction the light points
+        self.color           = [1.0, 1.0, 1.0]
+        self.ambient_strength = 0.2
 
 class Scene:
     def __init__(self) -> None:
@@ -298,7 +322,7 @@ class Result:
         self.RenderList = []
         self.Textures = {}
         self.PendingTextures = {}
-        self.ObjectRotations = {}
+        self.Lights = []
 #! ----------
 
 #! Settings by default
@@ -318,6 +342,32 @@ def set_camera_instance(camera) -> None:
 
 def set_matrices_instance(instance) -> None:
     result.Matrices = instance
+
+def create_directional_light(direction=(0.5, -1.0, 0.3),
+                              color=(1.0, 1.0, 1.0),
+                              ambient: float = 0.2) -> "DirectionalLight":
+    light                  = DirectionalLight()
+    light.direction        = list(direction)
+    light.color            = list(color)
+    light.ambient_strength = ambient
+    result.Lights.append(light)
+    return light          # caller can hold a reference to update it later
+
+def remove_light(light: "DirectionalLight") -> None:
+    if light in result.Lights:
+        result.Lights.remove(light)
+
+def clear_lights() -> None:
+    result.Lights.clear()
+
+def set_light_direction(light: "DirectionalLight", direction: tuple) -> None:
+    light.direction = list(direction)
+
+def set_light_color(light: "DirectionalLight", color: tuple) -> None:
+    light.color = list(color)
+
+def set_light_ambient(light: "DirectionalLight", ambient: float) -> None:
+    light.ambient_strength = ambient
 #! ----------
 
 #! Rendering functions
@@ -327,19 +377,13 @@ def render_scene() -> None:
     PROJ = result.Matrices.ProjMatrix
 
     for obj in result.MainScene.ObjectsOnScene:
-        name         = obj[0]
-        position     = obj[1]
-        color        = obj[8] if len(obj) > 8 else [1.0, 1.0, 1.0, 1.0]
-        flat_shading = obj[13] if len(obj) > 13 and obj[13] is not None else True
-
-        TRANS = result.Matrices.getTrans_matrix(*position[:3])
-        rot   = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
-        ROT   = (result.Matrices.getxRot_matrix(rot[0])
-               @ result.Matrices.getyRot_matrix(rot[1])
-               @ result.Matrices.getzRot_matrix(rot[2]))
-
+        TRANS = result.Matrices.getTrans_matrix(*obj.position[:3])
+        rx, ry, rz = obj.rotation
+        ROT = (result.Matrices.getxRot_matrix(rx)
+             @ result.Matrices.getyRot_matrix(ry)
+             @ result.Matrices.getzRot_matrix(rz))
         MVP = numpy.ascontiguousarray((ROT @ TRANS @ VIEW @ PROJ), dtype=numpy.float32)
-        result.RenderList.append((name, MVP, color, flat_shading))
+        result.RenderList.append((obj.name, MVP, obj.color, obj.model.flat_shading))
 
 def load_texture(texture_name: str, path: str, tex_filter: str = "linear") -> None:
     from PIL import Image
@@ -373,54 +417,48 @@ def _upload_texture_to_gpu(texture_name: str, data, width: int, height: int,
 
     result.Textures[texture_name] = tex_id
 
-def upload_object_to_gpu(obj) -> None:
+def upload_object_to_gpu(obj: SceneObject) -> None:
     from OpenGL.GL import (glGenVertexArrays, glGenBuffers, glBindVertexArray,
                            glBindBuffer, glBufferData, glEnableVertexAttribArray,
                            glVertexAttribPointer, GL_ARRAY_BUFFER,
-                           GL_ELEMENT_ARRAY_BUFFER, GL_FLOAT, GL_FALSE,
-                           GL_STATIC_DRAW)
+                           GL_ELEMENT_ARRAY_BUFFER, GL_FLOAT, GL_FALSE, GL_STATIC_DRAW)
 
-    name      = obj[0]
-    raw_verts = numpy.array(obj[5], dtype=numpy.float32)
-    if raw_verts.shape[1] == 4:
+    mdl  = obj.model
+    name = obj.name
+
+    raw_verts = numpy.array(mdl.vertices, dtype=numpy.float32)
+    if raw_verts.ndim == 2 and raw_verts.shape[1] == 4:
         raw_verts = raw_verts[:, :3]
 
-    raw_edges = numpy.array(obj[6], dtype=numpy.uint32).ravel()
-    raw_tris  = (numpy.array(obj[7], dtype=numpy.uint32).ravel()
-                 if len(obj) > 7 and obj[7] else numpy.array([], dtype=numpy.uint32))
-    raw_uvs   = obj[9] if len(obj) > 9 and obj[9] is not None else None
-    tiling    = obj[11] if len(obj) > 11 and obj[11] is not None else (1.0, 1.0)
+    raw_edges = numpy.array(mdl.edges, dtype=numpy.uint32).ravel() if mdl.edges else numpy.array([], dtype=numpy.uint32)
+    raw_tris  = numpy.array(mdl.triangles, dtype=numpy.uint32).ravel() if mdl.triangles else numpy.array([], dtype=numpy.uint32)
 
-    # obj[10] is either a string (single texture) or a list of material groups
-    raw_mat_groups = obj[10] if len(obj) > 10 and isinstance(obj[10], list) else None
+    raw_mat_groups = mdl.texture_name if isinstance(mdl.texture_name, list) else None
 
-    if raw_uvs is not None and not raw_mat_groups:
-        scaled_uvs = [[u * tiling[0], v * tiling[1]] for u, v in raw_uvs]
+    if mdl.uvs and not raw_mat_groups:
+        tx, ty = mdl.tiling
+        scaled_uvs = [[u * tx, v * ty] for u, v in mdl.uvs]
     else:
-        scaled_uvs = raw_uvs
-
-    flat_shading = obj[13] if len(obj) > 13 and obj[13] is not None else True
+        scaled_uvs = mdl.uvs or []
 
     if len(raw_tris) > 0:
-        if flat_shading:
+        if mdl.flat_shading:
             exp_verts, exp_normals, exp_uvs, seq_indices = \
-                _expand_for_flat_shading(obj[5], obj[7], scaled_uvs)
+                _expand_for_flat_shading(mdl.vertices, mdl.triangles, scaled_uvs)
         else:
-            exp_verts, exp_normals, _ = \
-                _compute_smooth_normals(obj[5], obj[7])
-            seq_indices = numpy.array(obj[7], dtype=numpy.uint32).ravel()  # use actual triangle indices
-            if scaled_uvs is not None:
-                exp_uvs = numpy.array(scaled_uvs, dtype=numpy.float32).reshape(-1, 2)
-            else:
-                exp_uvs = numpy.zeros((len(exp_verts), 2), dtype=numpy.float32)
+            exp_verts, exp_normals, _ = _compute_smooth_normals(mdl.vertices, mdl.triangles)
+            seq_indices = raw_tris
+            exp_uvs = (numpy.array(scaled_uvs, dtype=numpy.float32).reshape(-1, 2)
+                       if scaled_uvs else numpy.zeros((len(exp_verts), 2), dtype=numpy.float32))
     else:
         exp_verts   = raw_verts
         exp_normals = numpy.zeros_like(raw_verts)
         exp_uvs     = numpy.zeros((len(raw_verts), 2), dtype=numpy.float32)
         seq_indices = numpy.array([], dtype=numpy.uint32)
 
-    vao_solid                           = glGenVertexArrays(1)
-    vbo_pos, vbo_nrm, vbo_uv, ebo_tris  = glGenBuffers(4)
+    # ── Solid VAO ────────────────────────────────────────────────────────────
+    vao_solid                          = glGenVertexArrays(1)
+    vbo_pos, vbo_nrm, vbo_uv, ebo_tri = glGenBuffers(4)
 
     glBindVertexArray(vao_solid)
 
@@ -439,13 +477,13 @@ def upload_object_to_gpu(obj) -> None:
     glEnableVertexAttribArray(2)
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, None)
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_tris)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_tri)
     if seq_indices.nbytes > 0:
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, seq_indices.nbytes, seq_indices, GL_STATIC_DRAW)
 
     glBindVertexArray(0)
 
-    # Wireframe VAO
+    # ── Wireframe VAO ─────────────────────────────────────────────────────────
     vao_wire           = glGenVertexArrays(1)
     vbo_wire, ebo_edge = glGenBuffers(2)
 
@@ -455,27 +493,23 @@ def upload_object_to_gpu(obj) -> None:
     glEnableVertexAttribArray(0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_edge)
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, raw_edges.nbytes, raw_edges, GL_STATIC_DRAW)
+    if raw_edges.nbytes > 0:
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, raw_edges.nbytes, raw_edges, GL_STATIC_DRAW)
     glBindVertexArray(0)
 
-    # Convert material groups: tri indices → byte offsets into the expanded index buffer
-    # Each original triangle i → expanded indices [i*3, i*3+1, i*3+2], each uint32 = 4 bytes
-    if raw_mat_groups:
-        gpu_mat_groups = [
-            (tex_name, tri_start * 3 * 4, tri_count * 3)
-            for tex_name, tri_start, tri_count in raw_mat_groups
-        ]
-    else:
-        gpu_mat_groups = None
+    # ── Material groups ───────────────────────────────────────────────────────
+    gpu_mat_groups = (
+        [(tex, tri_start * 3 * 4, tri_count * 3) for tex, tri_start, tri_count in raw_mat_groups]
+        if raw_mat_groups else None
+    )
 
-    tex_filter = obj[12] if len(obj) > 12 and obj[12] is not None else "linear"
-    tex_name   = obj[10] if len(obj) > 10 and isinstance(obj[10], str) else None
-    if tex_name and tex_name in result.Textures:
-        # Re-upload only if filter differs from what's already on GPU
+    # Upload pending texture if needed
+    tex_name = mdl.texture_name if isinstance(mdl.texture_name, str) else None
+    if tex_name:
         pending = result.PendingTextures.get(tex_name)
         if pending:
             data, w, h, _ = pending
-            _upload_texture_to_gpu(tex_name, data, w, h, tex_filter)
+            _upload_texture_to_gpu(tex_name, data, w, h, mdl.tex_filter)
             del result.PendingTextures[tex_name]
 
     result.GPUBuffers[name] = (vao_solid, len(seq_indices),
@@ -496,146 +530,119 @@ def sync_object_to_gpu(obj_name: str) -> None:
 #! ----------
 
 #! Transformation functions
-def apply_noise(obj_name: str, noise: int, min_height: int, max_height: int,
-                height_scale: float = 1.0,
-                scale: float = 0.1,
-                octaves: int = 4,
-                persistence: float = 0.5,
-                lacunarity: float = 2.0,
-                seed: int = None) -> None:
-
+def apply_noise(obj_name, noise, min_height, max_height,
+                height_scale=1.0, scale=0.1, octaves=4,
+                persistence=0.5, lacunarity=2.0, seed=None):
     if seed is None:
         seed = random.randint(0, 10000)
 
     for obj in result.MainScene.ObjectsOnScene:
-        if obj[0] != obj_name:
+        if obj.name != obj_name:
             continue
 
-        verts = numpy.array(obj[5], dtype=numpy.float32)  # (N, 4)
+        verts = numpy.array(obj.model.vertices, dtype=numpy.float32)
         xs = verts[:, 0]
         zs = verts[:, 2]
 
         match noise:
             case 0:
-                # Vectorized random noise
-                verts[:, 1] = numpy.random.randint(min, max, size=len(verts)).astype(numpy.float32)
-
+                verts[:, 1] = numpy.random.randint(min_height, max_height, size=len(verts)).astype(numpy.float32)
             case 1:
                 gen = OpenSimplex(seed=seed)
                 rng = numpy.random.default_rng(seed)
                 seed_x = rng.uniform(0, 100)
                 seed_z = rng.uniform(0, 100)
-
-                # Vectorized fBm — no Python loop over vertices
                 value    = numpy.zeros(len(verts), dtype=numpy.float64)
                 amp      = 1.0
                 freq     = 1.0
                 max_possible = 0.0
-
                 noise_fn = numpy.vectorize(gen.noise2)
-
                 for _ in range(octaves):
-                    x_coords = xs * scale * freq + seed_x
-                    z_coords = zs * scale * freq + seed_z
-
-                    value        += noise_fn(x_coords, z_coords) * amp
+                    value        += noise_fn(xs * scale * freq + seed_x, zs * scale * freq + seed_z) * amp
                     max_possible += amp
                     amp          *= persistence
                     freq         *= lacunarity
+                normalized  = (value / max_possible + 1.0) / 2.0
+                verts[:, 1] = (normalized * height_scale).astype(numpy.float32)
 
-                # Normalize to [0, 1] then scale
-                normalized   = (value / max_possible + 1.0) / 2.0
-                verts[:, 1]  = (normalized * height_scale).astype(numpy.float32)
-
-        # Write back
-        for i, v in enumerate(obj[5]):
+        # Write back directly to the model's vertex list
+        for i, v in enumerate(obj.model.vertices):
             v[0] = verts[i, 0]
             v[1] = verts[i, 1]
             v[2] = verts[i, 2]
-            v[3] = verts[i, 3]
-
         return
 
     print(f"apply_noise({obj_name}, ...): Object not found!")
 
 def set_object_rotation(name: str, rx: float, ry: float, rz: float) -> None:
-    result.ObjectRotations[name] = (rx, ry, rz)
+    for obj in result.MainScene.ObjectsOnScene:
+        if obj.name == name:
+            obj.rotation = (rx, ry, rz)
+            return
+    print(f"set_object_rotation: object '{name}' not found")
 
 def rotate_object_by(name: str, drx: float, dry: float, drz: float) -> None:
-    rx, ry, rz = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
-    result.ObjectRotations[name] = (rx + drx, ry + dry, rz + drz)
+    for obj in result.MainScene.ObjectsOnScene:
+        if obj.name == name:
+            rx, ry, rz = obj.rotation
+            obj.rotation = (rx + drx, ry + dry, rz + drz)
+            return
+    print(f"rotate_object_by: object '{name}' not found")
 
 def move_object(by_x: float, by_y: float, by_z: float, object_name: str) -> None:
     for obj in result.MainScene.ObjectsOnScene:
-        if obj[0] == object_name:
-            obj[1] @= result.Matrices.getTrans_matrix(by_x, by_y, by_z)
+        if obj.name == object_name:
+            obj.position[0] += by_x
+            obj.position[1] += by_y
+            obj.position[2] += by_z
             return
-    
     print(f"move_object(..., {object_name}): The entered object does not exist!")
 
 def set_object_texture(obj_name: str, texture_name: str,
                        tiling_x: float = 1.0, tiling_y: float = 1.0,
                        tex_filter: str = "linear") -> None:
     for obj in result.MainScene.ObjectsOnScene:
-        if obj[0] == obj_name:
-            while len(obj) < 13:
-                obj.append(None)
-            obj[10] = texture_name
-            obj[11] = (tiling_x, tiling_y)
-            obj[12] = tex_filter
+        if obj.name == obj_name:
+            obj.model.texture_name = texture_name
+            obj.model.tiling       = (tiling_x, tiling_y)
+            obj.model.tex_filter   = tex_filter
             return
     print(f"set_object_texture: object '{obj_name}' not found")
 #! ----------
 
 #! Create objects
-def create_plane(name: str, position: tuple, sizeX: float, sizeZ: float, subdivision: int, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
+def create_plane(name, position, sizeX, sizeZ, subdivision=1, color=(0,0,0,1), flat_shading=True):
     offset_x = sizeX / 2
     offset_z = sizeZ / 2
+    steps = subdivision + 1
 
-    steps = subdivision + 1  # number of vertices per side
-
-    vertices = []
+    vertices, edges, faces, uvs = [], [], [], []
     for row in range(steps):
         for col in range(steps):
             x =  offset_x - (col / subdivision) * sizeX
             z = -offset_z + (row / subdivision) * sizeZ
             vertices.append([x, 0, z, 1])
-
-    # Build edges and faces from the grid
-    edges = []
-    faces = []
+            uvs.append([col / subdivision, row / subdivision])
 
     for row in range(steps):
         for col in range(steps):
             i = row * steps + col
-
-            # Horizontal edge (connect to the right neighbour)
             if col < subdivision:
                 edges.append((i, i + 1))
-
-            # Vertical edge (connect to the neighbour below)
             if row < subdivision:
                 edges.append((i, i + steps))
-
-            # Face (quad) from top-left corner of each cell
             if col < subdivision and row < subdivision:
-                top_left     = i
-                top_right    = i + 1
-                bottom_left  = i + steps
-                bottom_right = i + steps + 1
-                faces.append((top_left, top_right, bottom_right, bottom_left))
+                faces.append((i, i + 1, i + steps + 1, i + steps))
+
     triangles = _triangulate_quads(faces)
 
-    uvs = []
-    for row in range(steps):
-        for col in range(steps):
-            uvs.append([col / subdivision, row / subdivision])
-
-    pos = numpy.array([position[0], position[1], position[2], 1])
-    result.MainScene.ObjectsOnScene.append(
-        [name, pos, sizeX, faces, sizeZ, vertices, edges, triangles,
-        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
-    )
+    obj = SceneObject(name, position, _normalize_color(color))
+    obj.model.vertices    = vertices
+    obj.model.edges       = edges
+    obj.model.triangles   = triangles
+    obj.model.uvs         = uvs
+    obj.model.flat_shading = flat_shading
+    result.MainScene.ObjectsOnScene.append(obj)
 
 def _box_uv(x, y, z):
     ax, ay, az = abs(x), abs(y), abs(z)
@@ -646,148 +653,108 @@ def _box_uv(x, y, z):
     else:
         return [(x / az + 1) / 2, (y / az + 1) / 2]
 
-def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: float, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
+def create_cube(position, name, sizeX, sizeY, sizeZ, color=(0,0,0,1), flat_shading=True):
     hx, hy, hz = sizeX / 2, sizeY / 2, sizeZ / 2
-
-    # 6 faces × 4 unique vertices = 24 verts, so each face can have its own UVs.
-    # Winding: each quad is defined counter-clockwise when viewed from outside.
     face_quads = [
-        # front  (+Z)
-        [( hx, -hy,  hz, 1), ( hx,  hy,  hz, 1), (-hx,  hy,  hz, 1), (-hx, -hy,  hz, 1)],
-        # back   (-Z)
-        [(-hx, -hy, -hz, 1), (-hx,  hy, -hz, 1), ( hx,  hy, -hz, 1), ( hx, -hy, -hz, 1)],
-        # right  (+X)
-        [( hx, -hy, -hz, 1), ( hx,  hy, -hz, 1), ( hx,  hy,  hz, 1), ( hx, -hy,  hz, 1)],
-        # left   (-X)
-        [(-hx, -hy,  hz, 1), (-hx,  hy,  hz, 1), (-hx,  hy, -hz, 1), (-hx, -hy, -hz, 1)],
-        # top    (+Y)
-        [( hx,  hy,  hz, 1), ( hx,  hy, -hz, 1), (-hx,  hy, -hz, 1), (-hx,  hy,  hz, 1)],
-        # bottom (-Y)
-        [( hx, -hy, -hz, 1), ( hx, -hy,  hz, 1), (-hx, -hy,  hz, 1), (-hx, -hy, -hz, 1)],
+        [( hx,-hy, hz,1),( hx, hy, hz,1),(-hx, hy, hz,1),(-hx,-hy, hz,1)],
+        [(-hx,-hy,-hz,1),(-hx, hy,-hz,1),( hx, hy,-hz,1),( hx,-hy,-hz,1)],
+        [( hx,-hy,-hz,1),( hx, hy,-hz,1),( hx, hy, hz,1),( hx,-hy, hz,1)],
+        [(-hx,-hy, hz,1),(-hx, hy, hz,1),(-hx, hy,-hz,1),(-hx,-hy,-hz,1)],
+        [( hx, hy, hz,1),( hx, hy,-hz,1),(-hx, hy,-hz,1),(-hx, hy, hz,1)],
+        [( hx,-hy,-hz,1),( hx,-hy, hz,1),(-hx,-hy, hz,1),(-hx,-hy,-hz,1)],
     ]
-    # Each face gets its own clean 0→1 UV square.
-    face_uvs = [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]
+    face_uvs = [[0,0],[0,1],[1,1],[1,0]]
 
-    vertices  = []
-    uvs       = []
-    triangles = []
-    edges     = []
-
+    vertices, uvs, triangles, edges = [], [], [], []
     for quad in face_quads:
         base = len(vertices)
         vertices.extend([list(v) for v in quad])
         uvs.extend([uv[:] for uv in face_uvs])
-        # Two triangles per quad (fan from vertex 0)
-        triangles.extend([base, base + 1, base + 2,
-                           base, base + 2, base + 3])
-        # Perimeter edges for the wireframe
-        edges.extend([(base,     base + 1),
-                      (base + 1, base + 2),
-                      (base + 2, base + 3),
-                      (base + 3, base)])
+        triangles.extend([base, base+1, base+2, base, base+2, base+3])
+        edges.extend([(base,base+1),(base+1,base+2),(base+2,base+3),(base+3,base)])
 
-    position = numpy.array([position[0], position[1], position[2], 1])
-    result.MainScene.ObjectsOnScene.append(
-        [name, position, sizeX, sizeY, sizeZ, vertices, edges, triangles,
-        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
-    )
+    obj = SceneObject(name, position, _normalize_color(color))
+    obj.model.vertices    = vertices
+    obj.model.edges       = edges
+    obj.model.triangles   = triangles
+    obj.model.uvs         = uvs
+    obj.model.flat_shading = flat_shading
+    result.MainScene.ObjectsOnScene.append(obj)
 
-def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
-    num_vertices = rings * segments
-    vertices = numpy.zeros((num_vertices, 4), dtype=numpy.float32)
-    
+def create_sphere(position, name, radius, segments, rings, color=(0,0,0,1), flat_shading=True):
+    vertices, uvs = [], []
     theta_values = numpy.linspace(0, numpy.pi, rings)
-    phi_values = numpy.linspace(0, 2 * numpy.pi, segments)
-    
-    idx = 0
-    for i, theta in enumerate(theta_values):
-        sin_theta = numpy.sin(theta)
-        cos_theta = numpy.cos(theta)
-        
-        for j, phi in enumerate(phi_values):
-            x = radius * numpy.cos(phi) * sin_theta
-            z = radius * numpy.sin(phi) * sin_theta
-            y = radius * cos_theta
-            
-            vertices[idx] = [x, y, z, 1.0]
-            idx += 1
-    
-    num_edges = rings * segments + (rings - 1) * segments
-    edges = numpy.zeros((num_edges, 2), dtype=numpy.int32)
-    
-    edge_idx = 0
-    
+    phi_values   = numpy.linspace(0, 2 * numpy.pi, segments)
+
+    for theta in theta_values:
+        for phi in phi_values:
+            x = radius * numpy.cos(phi) * numpy.sin(theta)
+            z = radius * numpy.sin(phi) * numpy.sin(theta)
+            y = radius * numpy.cos(theta)
+            vertices.append([x, y, z, 1.0])
+            uvs.append([phi / (2 * numpy.pi), theta / numpy.pi])
+
+    edges, triangles = [], []
     for i in range(rings):
         for j in range(segments):
-            current = i * segments + j
-            
-            right = i * segments + (j + 1) % segments
-            edges[edge_idx] = [current, right]
-            edge_idx += 1
-            
+            cur = i * segments + j
+            edges.append((cur, i * segments + (j + 1) % segments))
             if i < rings - 1:
-                below = (i + 1) * segments + j
-                edges[edge_idx] = [current, below]
-                edge_idx += 1
-    
-    tris = []
+                edges.append((cur, (i + 1) * segments + j))
+
     for i in range(rings - 1):
         for j in range(segments):
             a = i * segments + j
             b = i * segments + (j + 1) % segments
             c = (i + 1) * segments + j
             d = (i + 1) * segments + (j + 1) % segments
-            tris.extend([a, b, d, a, d, c])
+            triangles.extend([a, b, d, a, d, c])
 
-    uvs = []
-    for i, theta in enumerate(theta_values):
-        for j, phi in enumerate(phi_values):
-            uvs.append([phi / (2 * numpy.pi), theta / numpy.pi])
+    obj = SceneObject(name, position, _normalize_color(color))
+    obj.model.vertices    = vertices
+    obj.model.edges       = edges
+    obj.model.triangles   = triangles
+    obj.model.uvs         = uvs
+    obj.model.flat_shading = flat_shading
+    result.MainScene.ObjectsOnScene.append(obj)
 
-    position = numpy.array([position[0], position[1], position[2], 1.0], dtype=numpy.float32)
-    result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, segments, rings, vertices, edges, tris,
-        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
-    )
-
-def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
+def create_cone(position, name, radius, height, segments, base_center, color=(0,0,0,1), flat_shading=True):
     vertices = []
+    uvs      = []
 
-    # Base ring vertices
-    for segment in range(segments):
-        angle = 2 * numpy.pi * segment / segments
-        x = radius * numpy.cos(angle)
-        z = radius * numpy.sin(angle)
-        vertices.append((x, -height / 2, z, 1.0))
+    # Base ring vertices — cylindrical UVs along the bottom edge
+    for i in range(segments):
+        angle = 2 * numpy.pi * i / segments
+        vertices.append([radius * numpy.cos(angle), -height / 2, radius * numpy.sin(angle), 1.0])
+        uvs.append([i / segments, 0.0])
 
-    # Append special vertices first so indices are stable
+    # Base center — disk center UV
     base_center_idx = len(vertices)
-    vertices.append((0, -height / 2, 0, 1.0))  # base center, same Y as ring
+    vertices.append([0, -height / 2, 0, 1.0])
+    uvs.append([0.5, 0.5])
 
+    # Apex — tip UV
     apex_idx = len(vertices)
-    vertices.append((0, height / 2, 0, 1.0))   # apex, symmetric above base
+    vertices.append([0, height / 2, 0, 1.0])
+    uvs.append([0.5, 1.0])
 
-    # Edges
-    edges = []
+    edges, triangles = [], []
     for i in range(segments):
-        next_i = (i + 1) % segments
-        edges.append((i, next_i))               # base ring
-        edges.append((i, apex_idx))             # side edge to apex
+        ni = (i + 1) % segments
+        edges.append((i, ni))
+        edges.append((i, apex_idx))
         if base_center:
-            edges.append((i, base_center_idx))  # spoke to base center
+            edges.append((i, base_center_idx))
+        triangles.extend([apex_idx, i, ni])
+        triangles.extend([base_center_idx, ni, i])
 
-    # Triangles
-    tris = []
-    for i in range(segments):
-        next_i = (i + 1) % segments
-        tris.extend([apex_idx, i, next_i])          # side face
-        tris.extend([base_center_idx, next_i, i])   # base face
-
-    position = numpy.array([position[0], position[1], position[2], 1.0])
-    result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, height, segments, vertices, edges, tris,
-        list(_normalize_color(color)), None, None, None, None, flat_shading]
-    )
+    obj = SceneObject(name, position, _normalize_color(color))
+    obj.model.vertices     = vertices
+    obj.model.edges        = edges
+    obj.model.triangles    = triangles
+    obj.model.uvs          = uvs
+    obj.model.flat_shading = flat_shading
+    result.MainScene.ObjectsOnScene.append(obj)
 
 def load_model(directory, position, name, color=(0.2, 0.2, 1.0, 1.0), scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear", flat_shading=True):
     ext = os.path.splitext(directory)[1].lower()
@@ -799,15 +766,20 @@ def load_model(directory, position, name, color=(0.2, 0.2, 1.0, 1.0), scale_x=1.
     else:
         print(f"load_model: unsupported format '{ext}'")
 
-def _append_model(position, name, color, vertices, uvs, triangles, edges, scale_x=1.0, scale_y=1.0, scale_z=1.0, flat_shading=True):
-    vertices = numpy.array(vertices, dtype=numpy.float32)
-    vertices[:, 0] *= scale_x
-    vertices[:, 1] *= scale_y
-    vertices[:, 2] *= scale_z
-    pos = numpy.array([position[0], position[1], position[2], 1.0])
-    result.MainScene.ObjectsOnScene.append(
-        [name, pos, None, None, None, vertices, edges, triangles, list(color), uvs, None, flat_shading]
-    )
+def _append_model(position, name, color, vertices, uvs, triangles, edges,
+                  scale_x=1.0, scale_y=1.0, scale_z=1.0, flat_shading=True):
+    verts = numpy.array(vertices, dtype=numpy.float32)
+    verts[:, 0] *= scale_x
+    verts[:, 1] *= scale_y
+    verts[:, 2] *= scale_z
+
+    obj = SceneObject(name, position, list(color))
+    obj.model.vertices    = verts.tolist()
+    obj.model.edges       = edges
+    obj.model.triangles   = triangles
+    obj.model.uvs         = uvs
+    obj.model.flat_shading = flat_shading
+    result.MainScene.ObjectsOnScene.append(obj)
 
 def _load_obj(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale_z=1.0, flat_shading=True):
     import re
@@ -976,7 +948,7 @@ def _load_gltf(directory, position, name, color, scale_x=1.0, scale_y=1.0, scale
                   numpy.array(all_verts, dtype=numpy.float32),
                   all_uvs, all_tris, all_edges,
                   scale_x, scale_y, scale_z, flat_shading)
-        result.MainScene.ObjectsOnScene[-1][10] = mat_groups
+        result.MainScene.ObjectsOnScene[-1].model.texture_name = mat_groups
 
     except Exception as e:
         import traceback

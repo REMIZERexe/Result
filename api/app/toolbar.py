@@ -153,59 +153,96 @@ _STYLE = """
 
 _BROWSER_STYLE = """
     QDialog {
-        background-color: rgb(25, 25, 25);
+        background-color: #c3c3c3;
+
+        border-top: 2px solid #fdffff;
+        border-left: 2px solid #fdffff;
+        border-bottom: 2px solid #636363;
+        border-right: 2px solid #636363;
     }
     QScrollArea {
-        background-color: rgb(25, 25, 25);
+        background-color: #c3c3c3;
         border: none;
     }
     QWidget#grid_container {
-        background-color: rgb(25, 25, 25);
+        background-color: #c3c3c3;
     }
     QLabel {
-        color: #ccc;
-        font-size: 11px;
+        color: #000000;
+        font-size: 12px;
         background: transparent;
         padding: 2px 0;
     }
     QPushButton#tex_item,
     _ModelPreview#mdl_item {
-        background-color: rgb(40, 40, 40);
-        border: 2px solid transparent;
-        border-radius: 6px;
-        padding: 4px;
+        background-color: #c3c3c3;
+        color: #000000;
+        border-top: 2px solid #fdffff;
+        border-left: 2px solid #fdffff;
+        border-bottom: 2px solid #636363;
+        border-right: 2px solid #636363;
+        padding: 4px 10px;
+        border-radius: 0px;
+        font-size: 12px;
     }
     QPushButton#tex_item:hover,
     _ModelPreview#mdl_item:hover {
-        border-color: rgba(160, 0, 200, 255);
+        background-color: rgba(255, 255, 255, 100);
     }
     QPushButton#tex_item[selected=true],
     _ModelPreview#mdl_item[selected=true] {
-        border-color: rgba(220, 0, 255, 255);
-        background-color: rgb(60, 0, 80);
+        background-color: #dbdbdb;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #fdffff;
+        border-right: 2px solid #fdffff;
+        padding-left: 11px;
+        padding-top: 5px;
     }
     QPushButton#clear_btn {
-        background-color: rgb(60, 60, 60);
-        color: #aaa;
-        border: none;
-        border-radius: 4px;
-        padding: 6px 12px;
+        background-color: #c3c3c3;
+        color: #000000;
+        border-top: 2px solid #e0e0e0;
+        border-left: 2px solid #e0e0e0;
+        border-bottom: 2px solid #4d4d4d;
+        border-right: 2px solid #4d4d4d;
+        padding: 4px 10px;
+        border-radius: 0px;
         font-size: 12px;
     }
-    QPushButton#clear_btn:hover { background-color: rgb(80, 80, 80); color: white; }
-    QPushButton#select_btn {
-        background-color: rgba(120, 0, 140, 255);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 6px 16px;
-        font-size: 13px;
+    QPushButton#clear_btn:pressed {
+        background-color: #dbdbdb;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #fdffff;
+        border-right: 2px solid #fdffff;
+        padding-left: 11px;
+        padding-top: 5px;
     }
-    QPushButton#select_btn:hover { background-color: rgba(160, 0, 190, 255); }
+    QPushButton#select_btn {
+        background-color: #c3c3c3;
+        color: #000000;
+        border-top: 2px solid #fdffff;
+        border-left: 2px solid #fdffff;
+        border-bottom: 2px solid #636363;
+        border-right: 2px solid #636363;
+        padding: 4px 10px;
+        border-radius: 0px;
+        font-size: 12px;
+    }
+    QPushButton#select_btn:pressed {
+        background-color: #dbdbdb;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #fdffff;
+        border-right: 2px solid #fdffff;
+        padding-left: 11px;
+        padding-top: 5px;
+    }
 """
 
 _TEXTURE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".tiff", ".webp"}
-_MODEL_EXTS = {".obj", ".gltf", ".glb", ".fbx"}
+_MODEL_EXTS = {".obj", ".gltf", ".glb"}
 
 def _load_preview_geometry(path: str):
     ext = os.path.splitext(path)[1].lower()
@@ -541,7 +578,7 @@ class TextureBrowser(QDialog):
         # Bottom bar: selected label + buttons
         bottom = QHBoxLayout()
         self._selected_label = QLabel("None selected")
-        self._selected_label.setStyleSheet("color: #aaa; font-size: 12px; padding: 0;")
+        self._selected_label.setStyleSheet("color: #000000; font-size: 12px; padding: 0;")
         bottom.addWidget(self._selected_label)
         bottom.addStretch()
 

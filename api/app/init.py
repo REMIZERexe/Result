@@ -143,6 +143,9 @@ class App(QOpenGLWidget):
         use_tex_loc  = glGetUniformLocation(self.shader, "useTexture")
         shading_loc  = glGetUniformLocation(self.shader, "useShading")
 
+        use_lit_loc      = glGetUniformLocation(self.shader, "useLighting")
+        light_count_loc  = glGetUniformLocation(self.shader, "lightCount")
+
         yaw_rad   = numpy.radians(self.cam.Yaw)
         pitch_rad = numpy.radians(self.cam.Pitch)
         forward   = numpy.array([
@@ -153,9 +156,19 @@ class App(QOpenGLWidget):
         forward /= numpy.linalg.norm(forward)
         glUniform3f(fwd_loc, *forward)
 
-        for tex_name, (data, w, h, tex_filter) in list(api.resultAPI.result.PendingTextures.items()):
-            api.resultAPI._upload_texture_to_gpu(tex_name, data, w, h, tex_filter)
-            del api.resultAPI.result.PendingTextures[tex_name]
+        lights = api.resultAPI.result.Lights
+        count  = min(len(lights), 16)
+        glUniform1i(light_count_loc, count)
+        for i, lt in enumerate(lights[:count]):
+            import math
+            d      = lt.direction
+            length = math.sqrt(d[0]**2 + d[1]**2 + d[2]**2) or 1.0
+            glUniform3f(glGetUniformLocation(self.shader, f"lightDir[{i}]"),
+                        d[0]/length, d[1]/length, d[2]/length)
+            glUniform3f(glGetUniformLocation(self.shader, f"lightColor[{i}]"),
+                        *lt.color)
+            glUniform1f(glGetUniformLocation(self.shader, f"lightAmbient[{i}]"),
+                        lt.ambient_strength)
 
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_POLYGON_OFFSET_FILL)
@@ -165,7 +178,7 @@ class App(QOpenGLWidget):
         for name, mvp, color, flat_shading in api.resultAPI.result.RenderList:
             if name not in api.resultAPI.result.GPUBuffers:
                 obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
-                        if o[0] == name)
+                        if o.name == name)
                 api.resultAPI.upload_object_to_gpu(obj)
 
             vao_solid, tri_count, vao_wire, edge_count, mat_groups = \
@@ -184,7 +197,7 @@ class App(QOpenGLWidget):
             # ── Textured ───────────────────────────────────────────────────────
             if api.resultAPI.result.textured and tri_count > 0:
                 obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
-                        if o[0] == name)
+                        if o.name == name)
                 glBindVertexArray(vao_solid)
 
                 if mat_groups:
@@ -201,7 +214,7 @@ class App(QOpenGLWidget):
                         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT,
                                     ctypes.c_void_p(byte_offset))
                 else:
-                    tex_name = obj[10] if len(obj) > 10 and isinstance(obj[10], str) else None
+                    tex_name = obj.model.texture_name if isinstance(obj.model.texture_name, str) else None
                     resolved = (tex_name
                                 if tex_name and tex_name in api.resultAPI.result.Textures
                                 else "missing")
@@ -213,8 +226,44 @@ class App(QOpenGLWidget):
                         glUniform1i(use_tex_loc, 0)
                     glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
             
+            # ── Lit ──────────────────────────────────────────────────────
             if api.resultAPI.result.lit and tri_count > 0:
-                pass
+                obj = next(o for o in api.resultAPI.result.MainScene.ObjectsOnScene
+                        if o.name == name)
+                glUniform1i(use_lit_loc, 1)
+                glBindVertexArray(vao_solid)
+
+                if mat_groups:
+                    for tex_name, byte_offset, count in mat_groups:
+                        resolved = (tex_name
+                                    if tex_name and tex_name in api.resultAPI.result.Textures
+                                    else "missing")
+                        if resolved in api.resultAPI.result.Textures:
+                            print(f"if: {api.resultAPI.result.Textures}")
+                            glActiveTexture(GL_TEXTURE0)
+                            glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures[resolved])
+                            glUniform1i(use_tex_loc, 1)
+                        else:
+                            print(f"else: {api.resultAPI.result.Textures}")
+                            glUniform4f(color_loc, *color)
+                            glUniform1i(use_tex_loc, 0)
+                        glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT,
+                                    ctypes.c_void_p(byte_offset))
+                else:
+                    tex_name = obj.model.texture_name if isinstance(obj.model.texture_name, str) else None
+                    resolved = (tex_name
+                                if tex_name and tex_name in api.resultAPI.result.Textures
+                                else "missing")
+                    if resolved in api.resultAPI.result.Textures:
+                        glActiveTexture(GL_TEXTURE0)
+                        glBindTexture(GL_TEXTURE_2D, api.resultAPI.result.Textures[resolved])
+                        glUniform1i(use_tex_loc, 1)
+                    else:
+                        glUniform4f(color_loc, *color)
+                        glUniform1i(use_tex_loc, 0)
+                    glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
+
+                glUniform1i(use_lit_loc, 0)
             
             # ── Wireframe ──────────────────────────────────────────────────────
             if api.resultAPI.result.wireframe:
@@ -232,18 +281,6 @@ class App(QOpenGLWidget):
     def resizeGL(self, width: int, height: int):
         api.resultAPI.config.set("window", "width", str(width))
         api.resultAPI.config.set("window", "height", str(int(width * 9 / 16)))
-    
-    #! My functions
-    def draw_line(self, start, end):
-        width, height = self.width(), self.height()
-        ndc_start_x = (start[0] / width) * 2 - 1
-        ndc_start_y = 1 - (start[1] / height) * 2
-        ndc_end_x = (end[0] / width) * 2 - 1
-        ndc_end_y = 1 - (end[1] / height) * 2
-        
-        api.resultAPI.result.EdgeBuffer.append((ndc_start_x, ndc_start_y, ndc_end_x, ndc_end_y))
-        self.update()
-    #! ----------
 
     def on_init(self):
         pass
@@ -271,6 +308,7 @@ class App(QOpenGLWidget):
 
         api.resultAPI.result.EdgeBuffer.clear()
         api.resultAPI.render_scene()
+        self.update()
 
     def update_scene(self):
         pass
@@ -301,7 +339,7 @@ class App(QOpenGLWidget):
             self.fpsTimer.start(round(1000 / api.resultAPI.config.getint("settings", "fps")))
 
     def keyPressEvent(self, e):
-        self.keys_pressed.add(e.key())  # add() is idempotent — no duplicates
+        self.keys_pressed.add(e.key())
 
         if e.key() == Qt.Key.Key_Escape:
             self.toggle_mouse_capture()
@@ -314,15 +352,14 @@ class App(QOpenGLWidget):
             self.menu_panel.toggle()
 
     def keyReleaseEvent(self, e):
-        self.keys_pressed.discard(e.key())  # discard() won't throw if missing
+        self.keys_pressed.discard(e.key())
 
     def focusOutEvent(self, event):
         self.keys_pressed.clear()
-        self.velocity = numpy.array([0.0, 0.0, 0.0])  # kill drift immediately
+        self.velocity = numpy.array([0.0, 0.0, 0.0])
         super().focusOutEvent(event)
 
     def mousePressEvent(self, e):
-    # Don't capture mouse if clicking on menu
         if self.menu_panel and self.menu_panel.isVisible() and e.pos().x() < 250:
             return
         
@@ -364,6 +401,7 @@ class App(QOpenGLWidget):
         self.mouse_captured = False
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.last_mouse_pos = None
+        self.velocity = numpy.array([0.0, 0.0, 0.0])
     
     def toggle_mouse_capture(self):
         if self.mouse_captured:
@@ -388,6 +426,9 @@ class App(QOpenGLWidget):
         return forward_movement, right, world_up
     
     def update_keys(self):
+        if not self.mouse_captured:
+            return
+
         forward, right, up = self.get_camera_direction()
         input_direction = numpy.array([0.0, 0.0, 0.0])
         
@@ -419,5 +460,3 @@ class App(QOpenGLWidget):
         
         self.velocity *= self.damping
         self.cam.Position += self.velocity
-        
-        self.update()
