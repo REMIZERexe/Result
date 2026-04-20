@@ -52,7 +52,7 @@ class App(QOpenGLWidget):
 
         # UI
         self.root = QHBoxLayout(self)
-        self.root.setContentsMargins(10, 12, 10, 12)
+        self.root.setContentsMargins(0, 0, 0, 0)
 
         self.menu_panel = None
         self.info = None
@@ -212,9 +212,12 @@ class App(QOpenGLWidget):
                     else:
                         glUniform1i(use_tex_loc, 0)
                     glDrawElements(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None)
-
+            
+            if api.resultAPI.result.lit and tri_count > 0:
+                pass
+            
             # ── Wireframe ──────────────────────────────────────────────────────
-            if not api.resultAPI.result.lit and api.resultAPI.result.wireframe:
+            if api.resultAPI.result.wireframe:
                 glDisable(GL_POLYGON_OFFSET_FILL)
                 glUniform4f(color_loc, 0.0, 0.0, 0.0, 1.0)
                 glUniform1i(use_tex_loc, 0)
@@ -259,7 +262,7 @@ class App(QOpenGLWidget):
 
         if self.accumulated_time >= self.update_interval:
             self.fps = self.frame_count / self.accumulated_time
-            self.info.fps.setText(f"{round(self.fps, 3)}")
+            self.info.fps.setText(f"fps: {round(self.fps)}")
             self.accumulated_time = 0.0
             self.frame_count = 0
         

@@ -18,75 +18,136 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 _STYLE = """
     Toolbar {
-        background-color: rgba(30, 30, 30, 220);
-        border-right: 2px solid rgba(180, 0, 220, 255);
+        background-color: #c3c3c3;
+        border-left: 2px solid #fdffff;
+        border-top: 2px solid #fdffff;
+        border-right: 2px solid #818181;
+        border-bottom: 2px solid #818181;
+    }
+    QFrame#separator {
+        border-top: 1px solid #818181;
+        border-bottom: 1px solid #fdffff;
+        max-height: 2px;
     }
     QLabel {
-        color: #ddd;
+        color: #000000;
         font-size: 13px;
-        padding: 2px 6px;
+        padding: 2px 4px;
         background: transparent;
     }
     QLabel#section {
-        color: white;
-        font-size: 15px;
+        color: #000000;
+        font-size: 11px;
         font-weight: bold;
-        letter-spacing: 1px;
-        padding: 10px 6px 2px 0;
+        padding: 6px 4px 2px 0;
         background: transparent;
     }
     QPushButton {
-        background-color: rgba(120, 0, 140, 255);
-        color: white;
-        border: none;
-        padding: 7px 10px;
-        border-radius: 4px;
-        font-size: 13px;
-    }
-    QPushButton:hover  { background-color: rgba(160, 0, 190, 255); }
-    QPushButton:pressed{ background-color: rgba(80,  0, 100, 255); }
-    QPushButton#flat {
-        background: transparent;
-        color: #aaa;
-        font-size: 11px;
-        padding: 4px 6px;
-        text-align: left;
-    }
-    QPushButton#flat:hover { color: white; background: transparent; }
-    QSlider::groove:horizontal {
-        height: 4px;
-        background: rgba(80, 80, 80, 255);
-        border-radius: 2px;
-        margin: 0 4px;
-    }
-    QSlider::handle:horizontal {
-        background: rgba(160, 0, 200, 255);
-        width: 14px; height: 14px;
-        margin: -5px 0;
-        border-radius: 7px;
-    }
-    QLineEdit {
-        background: rgba(20, 20, 20, 255);
-        color: white;
-        border: 1px solid rgba(100, 0, 120, 255);
-        border-radius: 4px;
-        padding: 4px 6px;
+        background-color: #c3c3c3;
+        color: #000000;
+        border-top: 2px solid #fdffff;
+        border-left: 2px solid #fdffff;
+        border-bottom: 2px solid #636363;
+        border-right: 2px solid #636363;
+        padding: 4px 10px;
+        border-radius: 0px;
         font-size: 12px;
     }
-    QLineEdit:focus { border-color: rgba(200, 0, 240, 255); }
-    QComboBox {
-        background: rgba(20, 20, 20, 255);
-        color: white;
-        border: 1px solid rgba(100, 0, 120, 255);
-        border-radius: 4px;
-        padding: 4px 6px;
-        font-size: 13px;
+    QPushButton:pressed {
+        background-color: #dbdbdb;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #fdffff;
+        border-right: 2px solid #fdffff;
+        padding-left: 11px;
+        padding-top: 5px;
     }
-    QComboBox::drop-down { border: none; }
-    QComboBox QAbstractItemView {
-        background: rgba(30, 30, 30, 255);
+    QPushButton#flat {
+        background: transparent;
+        color: #000000;
+        font-size: 12px;
+        padding: 3px 4px;
+        text-align: left;
+        border: none;
+    }
+    QPushButton#flat:hover {
         color: white;
-        selection-background-color: rgba(120, 0, 140, 255);
+    }
+    QSlider::groove:horizontal {
+        height: 2px;
+        background-color: #000000;
+        border-top: 1px solid #818181;
+        border-left: 1px solid #818181;
+        border-bottom: 1px solid #fdffff;
+        border-right: 1px solid #fdffff;
+    }
+    QSlider::handle:horizontal {
+        background: #c3c3c3;
+        width: 11px;
+        height: 21px;
+        margin: -10px 0;
+        border-top: 2px solid #fdffff;
+        border-left: 2px solid #fdffff;
+        border-bottom: 2px solid #818181;
+        border-right: 2px solid #818181;
+    }
+    QLineEdit {
+        background: #fdffff;
+        color: #000000;
+        padding: 2px 3px;
+        font-size: 11px;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #f1f1f1;
+        border-right: 2px solid #f1f1f1;
+    }
+    QComboBox {
+        background: white;
+        color: #000000;
+        padding: 2px 4px;
+        font-size: 11px;
+        border-top: 2px solid #636363;
+        border-left: 2px solid #636363;
+        border-bottom: 2px solid #f2f5f5;
+        border-right: 2px solid #f2f5f5;
+        selection-background-color: #000080;
+        selection-color: #fdffff;
+    }
+    QComboBox::drop-down {
+        width: 17px;
+        border-left: 2px solid #636363;
+        border: none;
+    }
+    QComboBox::down-arrow {
+        image: url(assets/icons/drop_down_arrow.bmp);
+        background-color: #c3c3c3;
+        color: white;
+        width: 13px;
+        height: 13px;
+
+        border-left: 2px solid #f2f5f5;
+        border-top: 2px solid #f2f5f5;
+        border-right: 2px solid #636363;
+        border-bottom: 2px solid #636363;
+    }
+    QComboBox QAbstractItemView {
+        background: #ffffff;
+        color: #000000;
+        border: 1px solid #000000;
+        outline: none;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 4px;
+        background-color: #ffffff;
+        color: #000000;
+    }
+    QComboBox QAbstractItemView::item:hover {
+        background-color: #0827f5;
+        color: #ffffff;
+    }
+    QComboBox QAbstractItemView::item:selected {
+        background-color: #0827f5;
+        color: #ffffff;
     }
 """
 
@@ -434,12 +495,18 @@ def _labeled_field(placeholder: str, default: str,
         field.setValidator(validator)
     return field
 
+def _separator():
+    separator = QFrame()
+    separator.setObjectName("separator")
+    separator.setFrameShape(QFrame.Shape.HLine)
+    separator.setFrameShadow(QFrame.Shadow.Sunken)
+    return separator
+
 def _row(*widgets) -> QWidget:
     container = QWidget()
     container.setObjectName("row")
     layout = QHBoxLayout(container)
-    layout.setContentsMargins(6, 0, 6, 0)
-    layout.setSpacing(6)
+    layout.setContentsMargins(0, 0, 0, 0)
     for w in widgets:
         layout.addWidget(w)
     return container
@@ -765,11 +832,15 @@ class _ModelPage(QWidget):
     def _refresh_model_btn(self):
         if self._selected_model_name:
             self._model_btn.setText(f"Model: {self._selected_model_name}")
-            self._model_btn.setStyleSheet(
-                "background-color: rgba(60, 0, 80, 255);"
-                "color: white; border: 1px solid rgba(200, 0, 240, 255);"
-                "border-radius: 4px; padding: 7px 10px;"
-            )
+            self._model_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
         else:
             self._model_btn.setText("Model: none")
             self._model_btn.setStyleSheet("")
@@ -800,17 +871,18 @@ class Toolbar(QWidget):
         self.setStyleSheet(_STYLE)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 12, 10, 12)
         root.setSpacing(2)
         root.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # ── Title ──────────────────────────────────────────────────────────
         title = QLabel("Result3D")
         title.setStyleSheet(
-            "font-size: 17px; font-weight: bold; color: white;"
+            "font-size: 20px; font-weight: bold; color: #000000;"
             "padding: 4px 10px 8px 10px; background: transparent;"
         )
         root.addWidget(title)
+
+        root.addWidget(_separator())
 
         # ── Camera section ─────────────────────────────────────────────────
         root.addWidget(_section_label("Camera"))
@@ -863,6 +935,15 @@ class Toolbar(QWidget):
         # Color picker
         self._color_btn = QPushButton("Color")
         self._color_btn.clicked.connect(self._pick_color)
+
+        color_btn_layout = QHBoxLayout(self._color_btn)
+        color_btn_layout.setContentsMargins(80, 4, 80, 4)  # this is your padding gap
+
+        self._color_swatch = QFrame()
+        self._color_swatch.setFixedHeight(14)
+        self._color_swatch.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        color_btn_layout.addWidget(self._color_swatch)
+
         self._refresh_color_btn()
         root.addWidget(self._color_btn)
 
@@ -879,27 +960,36 @@ class Toolbar(QWidget):
         # ── Rendering ──────────────────────────────────────────────────────
         root.addWidget(_section_label("Rendering"))
 
-        solid_btn = QPushButton()
-        solid_btn.setCheckable(True)
-        solid_btn.setIcon(QIcon("assets/icons/solid.png"))
-        solid_btn.toggled.connect(self._solid_toggle)
+        self.solid_btn = QPushButton()
+        self.solid_btn.setCheckable(True)
+        self.solid_btn.setIcon(QIcon("assets/icons/solid.png"))
+        self.solid_btn.toggled.connect(self._solid_toggle)
 
-        textured_btn = QPushButton()
-        textured_btn.setCheckable(True)
-        textured_btn.setIcon(QIcon("assets/icons/textured.png"))
-        textured_btn.toggled.connect(self._textured_toggle)
+        self.textured_btn = QPushButton()
+        self.textured_btn.setCheckable(True)
+        self.textured_btn.setIcon(QIcon("assets/icons/textured.png"))
+        self.textured_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
+        self.textured_btn.toggled.connect(self._textured_toggle)
 
-        lit_btn = QPushButton()
-        lit_btn.setCheckable(True)
-        lit_btn.setIcon(QIcon("assets/icons/lit.png"))
-        lit_btn.toggled.connect(self._lit_toggle)
-        root.addWidget(_row(solid_btn, textured_btn, lit_btn))
+        self.lit_btn = QPushButton()
+        self.lit_btn.setCheckable(True)
+        self.lit_btn.setIcon(QIcon("assets/icons/lit.png"))
+        self.lit_btn.toggled.connect(self._lit_toggle)
+        root.addWidget(_row(self.solid_btn, self.textured_btn, self.lit_btn))
 
-        wireframe_btn = QPushButton()
-        wireframe_btn.setCheckable(True)
-        wireframe_btn.setIcon(QIcon("assets/icons/wireframe.png"))
-        wireframe_btn.toggled.connect(self._wireframe_toggle)
-        root.addWidget(wireframe_btn)
+        self.wireframe_btn = QPushButton()
+        self.wireframe_btn.setCheckable(True)
+        self.wireframe_btn.setIcon(QIcon("assets/icons/wireframe.png"))
+        self.wireframe_btn.toggled.connect(self._wireframe_toggle)
+        root.addWidget(self.wireframe_btn)
 
         root.addStretch(1)
 
@@ -908,18 +998,138 @@ class Toolbar(QWidget):
     def _solid_toggle(self):
         api.resultAPI.result.solid = not api.resultAPI.result.solid
         if api.resultAPI.result.solid:
+            self.textured_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.lit_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.solid_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+                    """)
             api.resultAPI.result.textured = False
+            api.resultAPI.result.lit = False
 
     def _textured_toggle(self):
         api.resultAPI.result.textured = not api.resultAPI.result.textured
         if api.resultAPI.result.textured:
+            self.solid_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.lit_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.textured_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
             api.resultAPI.result.solid = False
+            api.resultAPI.result.lit = False
 
     def _lit_toggle(self):
         api.resultAPI.result.lit = not api.resultAPI.result.lit
+        if api.resultAPI.result.lit:
+            self.solid_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.textured_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
+            self.lit_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
+            api.resultAPI.result.solid = False
+            api.resultAPI.result.textured = False
 
     def _wireframe_toggle(self):
         api.resultAPI.result.wireframe = not api.resultAPI.result.wireframe
+        if api.resultAPI.result.wireframe:
+            self.wireframe_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
+        else:
+            self.wireframe_btn.setStyleSheet("""
+                background-color: #c3c3c3;
+                color: #000000;
+                border-top: 2px solid #fdffff;
+                border-left: 2px solid #fdffff;
+                border-bottom: 2px solid #636363;
+                border-right: 2px solid #636363;
+                padding: 4px 10px;
+                border-radius: 0px;
+                font-size: 12px;
+            """)
 
     def _on_speed_changed(self, value: int):
         speed = value / 10.0
@@ -940,9 +1150,12 @@ class Toolbar(QWidget):
 
     def _refresh_color_btn(self):
         r, g, b, _ = self._selected_color
-        self._color_btn.setStyleSheet(
+        self._color_swatch.setStyleSheet(
             f"background-color: rgb({int(r*255)},{int(g*255)},{int(b*255)});"
-            "color: white; border-radius: 4px; padding: 7px 10px;"
+            "border-top: 2px solid #808080;"
+            "border-left: 2px solid #808080;"
+            "border-bottom: 2px solid #ffffff;"
+            "border-right: 2px solid #ffffff;"
         )
 
     def _pick_texture(self):
@@ -973,11 +1186,15 @@ class Toolbar(QWidget):
     def _refresh_texture_btn(self):
         if self._selected_texture:
             self._texture_btn.setText(f"Texture: {self._selected_texture}")
-            self._texture_btn.setStyleSheet(
-                "background-color: rgba(60, 0, 80, 255);"
-                "color: white; border: 1px solid rgba(200, 0, 240, 255);"
-                "border-radius: 4px; padding: 7px 10px;"
-            )
+            self._texture_btn.setStyleSheet("""
+                background-color: #dbdbdb;
+                border-top: 2px solid #636363;
+                border-left: 2px solid #636363;
+                border-bottom: 2px solid #fdffff;
+                border-right: 2px solid #fdffff;
+                padding-left: 11px;
+                padding-top: 5px;
+            """)
         else:
             self._texture_btn.setText("Texture: none")
             self._texture_btn.setStyleSheet("")

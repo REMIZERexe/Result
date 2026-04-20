@@ -4,7 +4,7 @@ import os
 sys.dont_write_bytecode = True
 import api.resultAPI as resultAPI
 from api.app.init import App
-from PyQt6.QtGui import QSurfaceFormat
+from PyQt6.QtGui import QSurfaceFormat, QFont, QFontDatabase
 from PyQt6.QtWidgets import QApplication
 
 # TODO: Code cleanup
@@ -34,11 +34,20 @@ class AbstractWindow(App):
 
         # create_sphere((0, 100, 0), "ball", 50.0, 50, 50, (0.9, 0.1, 0.3, 1.0))
 
-        resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/v1.gltf"), (0, 50, 0), "V1", (0.0, 0.0, 1.0, 1.0), tex_filter="nearest")
-        resultAPI.set_object_rotation("V1", 0, 90, 0)
+        # resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/v1.gltf"), (0, 50, 0), "V1", (0.0, 0.0, 1.0, 1.0), tex_filter="nearest")
+        # resultAPI.set_object_rotation("V1", 0, 90, 0)
 
-        resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/earth_globe.glb"), (0, 80, 90), "earth", (0.0, 1.0, 1.0, 1.0), scale_x=0.08, scale_y=0.08, scale_z=0.08)
-        resultAPI.set_object_rotation("earth", 90, 0, 0)
+        # resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/earth_globe.glb"), (0, 80, 90), "earth", (0.0, 1.0, 1.0, 1.0), scale_x=0.08, scale_y=0.08, scale_z=0.08)
+        # resultAPI.set_object_rotation("earth", 90, 0, 0)
+
+        # resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/earth_globe.glb"), (0, 160, 90), "earth", (0.0, 1.0, 1.0, 1.0), scale_x=0.08, scale_y=0.08, scale_z=0.08)
+        # resultAPI.set_object_rotation("earth", 90, 0, 0)
+
+        # resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/earth_globe.glb"), (0, 160, 180), "earth", (0.0, 1.0, 1.0, 1.0), scale_x=0.08, scale_y=0.08, scale_z=0.08)
+        # resultAPI.set_object_rotation("earth", 90, 0, 0)
+
+        # resultAPI.load_model(os.path.join(resultAPI.get_assets_path(), "assets/models/earth_globe.glb"), (90, 80, 90), "earth", (0.0, 1.0, 1.0, 1.0), scale_x=0.08, scale_y=0.08, scale_z=0.08)
+        # resultAPI.set_object_rotation("earth", 90, 0, 0)
 
         self.direction = 1
         self.position_x = 0
@@ -65,6 +74,11 @@ fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
 QSurfaceFormat.setDefaultFormat(fmt)
 
 app = QApplication(sys.argv)
+
+font_id = QFontDatabase.addApplicationFont("assets/fonts/W95F.otf")
+family = QFontDatabase.applicationFontFamilies(font_id)[0]
+app.setFont(QFont(family, 10))
+
 w = AbstractWindow()
 
 resultAPI.set_window_instance(w)
