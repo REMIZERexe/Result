@@ -330,7 +330,7 @@ def render_scene() -> None:
         name         = obj[0]
         position     = obj[1]
         color        = obj[8] if len(obj) > 8 else [1.0, 1.0, 1.0, 1.0]
-        flat_shading = obj[11] if len(obj) > 11 and obj[11] is not None else True
+        flat_shading = obj[13] if len(obj) > 13 and obj[13] is not None else True
 
         TRANS = result.Matrices.getTrans_matrix(*position[:3])
         rot   = result.ObjectRotations.get(name, (0.0, 0.0, 0.0))
@@ -406,11 +406,11 @@ def upload_object_to_gpu(obj) -> None:
             exp_verts, exp_normals, exp_uvs, seq_indices = \
                 _expand_for_flat_shading(obj[5], obj[7], scaled_uvs)
         else:
-            exp_verts, exp_normals, seq_indices = \
+            exp_verts, exp_normals, _ = \
                 _compute_smooth_normals(obj[5], obj[7])
+            seq_indices = numpy.array(obj[7], dtype=numpy.uint32).ravel()  # use actual triangle indices
             if scaled_uvs is not None:
-                uv_arr  = numpy.array(scaled_uvs, dtype=numpy.float32).reshape(-1, 2)
-                exp_uvs = uv_arr  # smooth shading keeps original indices
+                exp_uvs = numpy.array(scaled_uvs, dtype=numpy.float32).reshape(-1, 2)
             else:
                 exp_uvs = numpy.zeros((len(exp_verts), 2), dtype=numpy.float32)
     else:
@@ -633,7 +633,8 @@ def create_plane(name: str, position: tuple, sizeX: float, sizeZ: float, subdivi
 
     pos = numpy.array([position[0], position[1], position[2], 1])
     result.MainScene.ObjectsOnScene.append(
-        [name, pos, sizeX, faces, sizeZ, vertices, edges, triangles, list(_normalize_color(color)), uvs, None, flat_shading]
+        [name, pos, sizeX, faces, sizeZ, vertices, edges, triangles,
+        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
     )
 
 def _box_uv(x, y, z):
@@ -687,7 +688,8 @@ def create_cube(position: tuple, name: str, sizeX: float, sizeY: float, sizeZ: f
 
     position = numpy.array([position[0], position[1], position[2], 1])
     result.MainScene.ObjectsOnScene.append(
-        [name, position, sizeX, sizeY, sizeZ, vertices, edges, triangles, list(_normalize_color(color)), uvs, None, flat_shading]
+        [name, position, sizeX, sizeY, sizeZ, vertices, edges, triangles,
+        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
     )
 
 def create_sphere(position: tuple, name: str, radius: float, segments: int, rings: int, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
@@ -744,7 +746,8 @@ def create_sphere(position: tuple, name: str, radius: float, segments: int, ring
 
     position = numpy.array([position[0], position[1], position[2], 1.0], dtype=numpy.float32)
     result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, segments, rings, vertices, edges, tris, list(_normalize_color(color)), uvs, None, flat_shading]
+        [name, position, radius, segments, rings, vertices, edges, tris,
+        list(_normalize_color(color)), uvs, None, None, None, flat_shading]
     )
 
 def create_cone(position: tuple, name: str, radius: float, height: float, segments: int, base_center: bool, color=(0.0, 0.0, 0.0, 1.0), flat_shading=True) -> None:
@@ -782,7 +785,8 @@ def create_cone(position: tuple, name: str, radius: float, height: float, segmen
 
     position = numpy.array([position[0], position[1], position[2], 1.0])
     result.MainScene.ObjectsOnScene.append(
-        [name, position, radius, height, segments, vertices, edges, tris, list(_normalize_color(color)), flat_shading]
+        [name, position, radius, height, segments, vertices, edges, tris,
+        list(_normalize_color(color)), None, None, None, None, flat_shading]
     )
 
 def load_model(directory, position, name, color=(0.2, 0.2, 1.0, 1.0), scale_x=1.0, scale_y=1.0, scale_z=1.0, tex_filter="linear", flat_shading=True):

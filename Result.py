@@ -7,7 +7,6 @@ from api.app.init import App
 from PyQt6.QtGui import QSurfaceFormat
 from PyQt6.QtWidgets import QApplication
 
-# TODO: Possibility to toggle flat shading
 # TODO: Code cleanup
 # TODO: Add complex working lighting and lit mode.
 # TODO: Start working on edit mode and more settings, windows, buttons, to do stuff in-engine
